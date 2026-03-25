@@ -248,20 +248,119 @@ private struct VolumeCard: View {
         }
     }
 
+    private var cardPalette: [Color] {
+        switch volume.usageFraction {
+        case ..<0.5:
+            return [
+                Color(red: 0.35, green: 0.78, blue: 0.54),
+                Color(red: 0.22, green: 0.63, blue: 0.40),
+                Color(red: 0.16, green: 0.50, blue: 0.31),
+                Color(red: 0.13, green: 0.42, blue: 0.26),
+            ]
+        case ..<0.75:
+            return [
+                Color(red: 0.91, green: 0.77, blue: 0.40),
+                Color(red: 0.82, green: 0.60, blue: 0.24),
+                Color(red: 0.72, green: 0.48, blue: 0.18),
+                Color(red: 0.58, green: 0.37, blue: 0.14),
+            ]
+        case ..<0.9:
+            return [
+                Color(red: 0.94, green: 0.66, blue: 0.34),
+                Color(red: 0.86, green: 0.50, blue: 0.20),
+                Color(red: 0.73, green: 0.38, blue: 0.15),
+                Color(red: 0.60, green: 0.28, blue: 0.12),
+            ]
+        default:
+            return [
+                Color(red: 0.88, green: 0.44, blue: 0.42),
+                Color(red: 0.76, green: 0.30, blue: 0.28),
+                Color(red: 0.62, green: 0.22, blue: 0.22),
+                Color(red: 0.50, green: 0.16, blue: 0.18),
+            ]
+        }
+    }
+
+    private var chipPalette: [Color] {
+        switch volume.usageFraction {
+        case ..<0.5:
+            return [
+                Color(red: 0.15, green: 0.42, blue: 0.26).opacity(0.7),
+                Color(red: 0.10, green: 0.30, blue: 0.18).opacity(0.7),
+            ]
+        case ..<0.75:
+            return [
+                Color(red: 0.46, green: 0.33, blue: 0.12).opacity(0.72),
+                Color(red: 0.33, green: 0.23, blue: 0.09).opacity(0.72),
+            ]
+        case ..<0.9:
+            return [
+                Color(red: 0.49, green: 0.24, blue: 0.10).opacity(0.72),
+                Color(red: 0.35, green: 0.17, blue: 0.08).opacity(0.72),
+            ]
+        default:
+            return [
+                Color(red: 0.43, green: 0.15, blue: 0.16).opacity(0.72),
+                Color(red: 0.29, green: 0.10, blue: 0.11).opacity(0.72),
+            ]
+        }
+    }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+    }
+
     private var cardGradient: LinearGradient {
         LinearGradient(
-            colors: [
-                usageTint.opacity(0.28),
-                usageTint.opacity(0.1),
-                Color.black.opacity(0.06),
-            ],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
+            colors: Array(cardPalette.reversed()),
+            startPoint: .leading,
+            endPoint: .trailing
         )
+    }
+
+    private var cardBackground: some View {
+        ZStack {
+            cardShape
+                .fill(cardGradient)
+
+            AnimatedColorFlow(
+                palette: cardPalette,
+                primaryTint: usageTint
+            )
+
+            AnimatedOrbField(
+                seed: volume.id,
+                primaryTint: usageTint,
+                palette: cardPalette
+            )
+
+            LinearGradient(
+                colors: [
+                    Color.white.opacity(0.18),
+                    Color.white.opacity(0.06),
+                    .clear,
+                ],
+                startPoint: .topTrailing,
+                endPoint: .bottomLeading
+            )
+            .clipShape(cardShape)
+        }
+        .clipShape(cardShape)
     }
 
     private var actionButtonTitle: String {
         settings.destinationFolderPath.isEmpty ? "选择导入目标文件夹" : "导入照片和视频"
+    }
+
+    private var neutralInfoTileBackgroundColors: [Color] {
+        [
+            Color.gray.opacity(0.30),
+            Color(red: 0.80, green: 0.84, blue: 0.82).opacity(0.22),
+        ]
+    }
+
+    private var infoTileBorderColor: Color {
+        usageTint.opacity(0.82)
     }
 
     private var helperText: String {
@@ -294,20 +393,37 @@ private struct VolumeCard: View {
                 Spacer(minLength: 0)
 
                 Text("\(usagePercent)% 已用")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.92))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(.black.opacity(0.08), in: Capsule())
+                    .background(
+                        LinearGradient(
+                            colors: chipPalette,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        in: Capsule()
+                    )
+                    .overlay {
+                        Capsule()
+                            .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                    }
             }
 
-            ProgressView(value: volume.usageFraction)
-                .progressViewStyle(.linear)
-                .tint(usageTint)
-
             HStack(spacing: 10) {
-                InfoTile(title: "可用空间", value: volume.availableText)
-                InfoTile(title: "总容量", value: volume.totalText)
+                InfoTile(
+                    title: "已用空间",
+                    value: volume.usedText,
+                    backgroundColors: neutralInfoTileBackgroundColors,
+                    borderColor: infoTileBorderColor
+                )
+                InfoTile(
+                    title: "剩余空间",
+                    value: volume.availableText,
+                    backgroundColors: neutralInfoTileBackgroundColors,
+                    borderColor: infoTileBorderColor
+                )
             }
 
             if isCurrentVolumeImporting {
@@ -318,10 +434,11 @@ private struct VolumeCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(cardGradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(cardBackground)
+        .clipShape(cardShape)
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            cardShape
+                .strokeBorder(.white.opacity(0.1), lineWidth: 1)
         }
     }
 
@@ -329,7 +446,7 @@ private struct VolumeCard: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(helperText)
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.82))
 
             Button(actionButtonTitle) {
                 handlePrimaryAction()
@@ -376,7 +493,14 @@ private struct VolumeCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.08))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                }
+        )
     }
 
     private func handlePrimaryAction() {
@@ -400,22 +524,242 @@ private struct VolumeCard: View {
 private struct InfoTile: View {
     let title: String
     let value: String
+    let backgroundColors: [Color]
+    let borderColor: Color
+    let borderHighlightOpacity: Double
+
+    init(title: String, value: String, backgroundColors: [Color] = [
+        .white.opacity(0.24),
+        .white.opacity(0.18),
+    ], borderColor: Color = Color.white.opacity(0.48), borderHighlightOpacity: Double = 0.18) {
+        self.title = title
+        self.value = value
+        self.backgroundColors = backgroundColors
+        self.borderColor = borderColor
+        self.borderHighlightOpacity = borderHighlightOpacity
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.white.opacity(0.82))
 
             Text(value)
-                .font(.subheadline.weight(.medium))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
+                .shadow(color: .black.opacity(0.14), radius: 8, x: 0, y: 2)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: backgroundColors,
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    // 1. 上层：你原来的淡彩色线（绿/橙变浅）
+                        .strokeBorder(borderColor.opacity(0.6), lineWidth: 2)
+                    // 2. 底层：白色线（垫在下面）
+                        .background(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(.white.opacity(0.9), lineWidth: 2) // 这里改白色和线宽
+                        )
+                }
+        }
+    }
+}
+
+private struct AnimatedOrbField: View {
+    let seed: String
+    let primaryTint: Color
+    let palette: [Color]
+
+    @State private var animate = false
+
+    private var specs: [OrbSpec] {
+        OrbSpec.make(seed: seed, palette: palette, fallbackTint: primaryTint)
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                ForEach(specs) { spec in
+                    Circle()
+                        .fill(spec.color.opacity(spec.opacity))
+                        .frame(
+                            width: proxy.size.width * spec.sizeScale,
+                            height: proxy.size.width * spec.sizeScale
+                        )
+                        .blur(radius: proxy.size.width * spec.blurScale)
+                        .position(
+                            x: proxy.size.width * (spec.anchorX + (animate ? spec.travelX : -spec.travelX)),
+                            y: proxy.size.height * (spec.anchorY + (animate ? spec.travelY : -spec.travelY))
+                        )
+                        .animation(
+                            .easeInOut(duration: spec.duration)
+                                .repeatForever(autoreverses: true)
+                                .delay(spec.delay),
+                            value: animate
+                        )
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            guard !animate else { return }
+            animate = true
+        }
+    }
+
+    private struct OrbSpec: Identifiable {
+        let id: Int
+        let color: Color
+        let opacity: Double
+        let sizeScale: CGFloat
+        let blurScale: CGFloat
+        let anchorX: CGFloat
+        let anchorY: CGFloat
+        let travelX: CGFloat
+        let travelY: CGFloat
+        let duration: Double
+        let delay: Double
+
+        static func make(seed: String, palette: [Color], fallbackTint: Color) -> [OrbSpec] {
+            var generator = SeededGenerator(seed: seed)
+            let colors = palette.isEmpty ? [fallbackTint] : palette
+            let count = 6
+
+            return (0..<count).map { index in
+                let color = colors[index % colors.count]
+                return OrbSpec(
+                    id: index,
+                    color: color,
+                    opacity: generator.next(in: 0.16...0.30),
+                    sizeScale: generator.next(in: 0.26...0.60),
+                    blurScale: generator.next(in: 0.08...0.15),
+                    anchorX: generator.next(in: -0.10...1.10),
+                    anchorY: generator.next(in: -0.05...1.10),
+                    travelX: generator.next(in: -0.14...0.14),
+                    travelY: generator.next(in: -0.14...0.14),
+                    duration: generator.next(in: 13.0...20.0),
+                    delay: generator.next(in: 0.0...2.4)
+                )
+            }
+        }
+    }
+
+    private struct SeededGenerator {
+        private var state: UInt64
+
+        init(seed: String) {
+            state = 0xcbf29ce484222325
+            for byte in seed.utf8 {
+                state ^= UInt64(byte)
+                state &*= 0x100000001b3
+            }
+            if state == 0 {
+                state = 0x9e3779b97f4a7c15
+            }
+        }
+
+        mutating func nextUnit() -> Double {
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            let value = (state >> 11) & ((1 << 53) - 1)
+            return Double(value) / Double(1 << 53)
+        }
+
+        mutating func next(in range: ClosedRange<Double>) -> Double {
+            range.lowerBound + (range.upperBound - range.lowerBound) * nextUnit()
+        }
+
+        mutating func next(in range: ClosedRange<CGFloat>) -> CGFloat {
+            CGFloat(next(in: Double(range.lowerBound)...Double(range.upperBound)))
+        }
+    }
+}
+
+private struct AnimatedColorFlow: View {
+    let palette: [Color]
+    let primaryTint: Color
+
+    @State private var animate = false
+
+    private var brightColor: Color {
+        palette.first ?? primaryTint
+    }
+
+    private var deepColor: Color {
+        palette.last ?? primaryTint
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Ellipse()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                brightColor.opacity(1.0),
+                                brightColor.opacity(0.72),
+                                .clear,
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: proxy.size.width * 0.94, height: proxy.size.height * 0.68)
+                    .blur(radius: 20)
+                    .rotationEffect(.degrees(animate ? 17 : -15))
+                    .offset(
+                        x: animate ? proxy.size.width * 0.30 : -proxy.size.width * 0.24,
+                        y: animate ? -proxy.size.height * 0.10 : proxy.size.height * 0.12
+                    )
+                    .animation(
+                        .easeInOut(duration: 17)
+                            .repeatForever(autoreverses: true),
+                        value: animate
+                    )
+
+                Ellipse()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                deepColor.opacity(0.24),
+                                brightColor.opacity(0.18),
+                                .clear,
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .frame(width: proxy.size.width * 0.88, height: proxy.size.height * 0.82)
+                    .blur(radius: 24)
+                    .rotationEffect(.degrees(animate ? -16 : 11))
+                    .offset(
+                        x: animate ? -proxy.size.width * 0.22 : proxy.size.width * 0.18,
+                        y: animate ? proxy.size.height * 0.10 : -proxy.size.height * 0.12
+                    )
+                    .animation(
+                        .easeInOut(duration: 21)
+                            .repeatForever(autoreverses: true),
+                        value: animate
+                    )
+            }
+        }
+        .allowsHitTesting(false)
+        .onAppear {
+            guard !animate else { return }
+            animate = true
+        }
     }
 }
 

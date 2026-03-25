@@ -22,6 +22,10 @@ struct MountedVolume: Identifiable, Equatable, Sendable {
         ByteCountFormatter.string(fromByteCount: availableCapacity, countStyle: .file)
     }
 
+    var usedText: String {
+        ByteCountFormatter.string(fromByteCount: usedCapacity, countStyle: .file)
+    }
+
     var totalText: String {
         ByteCountFormatter.string(fromByteCount: totalCapacity, countStyle: .file)
     }
