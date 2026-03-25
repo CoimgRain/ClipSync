@@ -168,10 +168,7 @@ final class MediaImporter: ObservableObject {
         guard bytesPerSecond > 0 else { return nil }
 
         let remainingBytes = max(0, totalImportBytes - importedBytes)
-        let referenceDate = lastProgressUpdateDate ?? importStartDate
-        let adjustmentWindow = min(Date().timeIntervalSince(referenceDate), 1)
-        let adjustedRemainingBytes = max(0, Double(remainingBytes) - bytesPerSecond * adjustmentWindow)
-        let remainingSeconds = adjustedRemainingBytes / bytesPerSecond
+        let remainingSeconds = Double(remainingBytes) / bytesPerSecond
 
         return Self.remainingTimeText(remainingSeconds)
     }

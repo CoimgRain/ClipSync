@@ -576,12 +576,12 @@ private struct VolumeCard: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(importer.importProgressDetailText ?? "-- / --")
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
 
-                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    TimelineView(.periodic(from: .now, by: 0.1)) { _ in
                         Text(importer.importRemainingTimeText ?? "--:--")
                             .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.white.opacity(0.85))
