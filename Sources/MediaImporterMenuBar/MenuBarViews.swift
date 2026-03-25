@@ -571,49 +571,98 @@ private struct VolumeCard: View {
     }
 
     private var importProgressSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text("正在导入...")
-                    .font(.subheadline.weight(.semibold))
-
-                Spacer(minLength: 0)
-
-                if let detailText = importer.importProgressDetailText {
-                    Text(detailText)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(importer.importProgressDetailText ?? "-- / --")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                        .minimumScaleFactor(0.85)
+
+                    TimelineView(.periodic(from: .now, by: 1)) { _ in
+                        Text(importer.importRemainingTimeText ?? "--:--")
+                            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.85))
+                            .lineLimit(1)
+                            .minimumScaleFactor(1)
+                    }
+                }
+
+                GeometryReader { proxy in
+                    let progress = max(0, min(1, importer.importProgress ?? 0))
+
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.20))
+
+                        Capsule()
+                            .fill(Color.white.opacity(0.96))
+                            .frame(width: max(18, proxy.size.width * progress))
+                            .animation(.linear(duration: 0.18), value: progress)
+                    }
+                }
+                .frame(height: 8)
+
+                if importer.totalPhotoCount > 0 || importer.totalVideoCount > 0 {
+                    HStack(spacing: 12) {
+                        Text("\(importer.importedPhotoCount)/\(importer.totalPhotoCount) 张照片")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text("\(importer.importedVideoCount)/\(importer.totalVideoCount) 个视频")
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+                } else {
+                    Text(importer.lastResultMessage)
+                        .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 12)
+            .padding(.trailing, 10)
+            .padding(.vertical, 8)
 
-            ProgressView(value: importer.importProgress ?? 0)
-                .progressViewStyle(.linear)
-                .tint(usageTint)
+            Rectangle()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 1, height: 44)
 
-            Text(importer.lastResultMessage)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            HStack {
-                Spacer()
-
-                Button("取消导入") {
-                    importer.cancelImport()
-                }
-                .buttonStyle(.bordered)
+            Button("取消导入") {
+                importer.cancelImport()
             }
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.96))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.18))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
         }
-        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.08))
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.black.opacity(0.12))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 }
-        )
+        }
+        .padding(.top, -30)
     }
 
     private func handlePrimaryAction() {
@@ -963,11 +1012,15 @@ struct MenuContentView_Previews: PreviewProvider {
                 ),
                 importer: MediaImporter(
                     previewIsImporting: true,
-                    previewMessage: "正在导入 SONY_CARD... 18.50 GB / 40.20 GB",
+                    previewMessage: "正在导入 SONY_CARD...",
                     previewProgress: 0.46,
                     previewCurrentImportVolumeID: previewVolume.id,
                     previewImportedBytes: 18_500_000_000,
-                    previewTotalImportBytes: 40_200_000_000
+                    previewTotalImportBytes: 40_200_000_000,
+                    previewImportedPhotoCount: 23,
+                    previewTotalPhotoCount: 250,
+                    previewImportedVideoCount: 5,
+                    previewTotalVideoCount: 18
                 )
             )
             .previewDisplayName("Importing")
