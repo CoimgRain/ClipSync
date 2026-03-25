@@ -108,26 +108,31 @@ struct MenuContentView: View {
         }
     }
 
-    private var settingsMenu: some View {
+    private var settingsMenu: some View { //设置按钮选项
         Button {
             isShowingSettingsPopover.toggle()
         } label: {
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
+            HStack(spacing: 0) {
+                HStack(spacing: 5) {
                     Image(systemName: "gearshape")
+                        .padding(.leading, -3)
                     Text("设置")
                 }
 
                 Rectangle()
                     .fill(.secondary.opacity(0.25))
-                    .frame(width: 1, height: 14)
+                    .frame(width: 1, height: 12)
+                    .padding(.leading, 7)   // 左边间距 = 2
+                    .padding(.trailing, 9)  // 右边间距 = 6
 
                 Image(systemName: isShowingSettingsPopover ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .light))
                     .foregroundStyle(.secondary)
+                    .frame(width: 2)
             }
             .font(.body)
             .foregroundStyle(.primary)
+            .fixedSize()
         }
         .buttonStyle(.bordered)
         .controlSize(.regular)
@@ -206,7 +211,7 @@ private struct EmptyDeviceState: View {
             Text("未检测到 U 盘或 SD 卡")
                 .font(.headline)
 
-            Text("插入设备后会自动刷新列表。")
+            Text("插入设备后会自动刷新列表")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
