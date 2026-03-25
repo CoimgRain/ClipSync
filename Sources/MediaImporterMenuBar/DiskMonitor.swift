@@ -2,10 +2,16 @@ import AppKit
 import Combine
 import Foundation
 
+struct VolumeMediaSummary: Equatable, Sendable {
+    let photoCount: Int
+    let videoCount: Int
+}
+
 struct MountedVolume: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let url: URL
+    let formatDescription: String
     let totalCapacity: Int64
     let availableCapacity: Int64
 
@@ -30,17 +36,40 @@ struct MountedVolume: Identifiable, Equatable, Sendable {
         ByteCountFormatter.string(fromByteCount: totalCapacity, countStyle: .file)
     }
 
-    var subtitle: String {
-        "剩余 \(availableText) / 共 \(totalText)"
+    var roundedTotalText: String {
+        let units: [(label: String, scale: Double)] = [
+            ("TB", 1_000_000_000_000),
+            ("GB", 1_000_000_000),
+            ("MB", 1_000_000),
+            ("KB", 1_000),
+        ]
+
+        let capacity = Double(max(totalCapacity, 0))
+
+        for unit in units where capacity >= unit.scale {
+            let roundedValue = Int((capacity / unit.scale).rounded())
+            return "\(roundedValue) \(unit.label)"
+        }
+
+        return "\(Int(capacity.rounded())) B"
     }
+
 }
 
 @MainActor
 final class DiskMonitor: ObservableObject {
     @Published private(set) var removableVolumes: [MountedVolume] = []
+    @Published private(set) var mediaSummaries: [String: VolumeMediaSummary] = [:]
 
     private var observers: [NSObjectProtocol] = []
+    private var scanTasks: [String: Task<Void, Never>] = [:]
     private let notificationCenter = NSWorkspace.shared.notificationCenter
+    nonisolated private static let photoExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "heic", "gif", "bmp", "tif", "tiff", "raw", "dng",
+    ]
+    nonisolated private static let videoExtensions: Set<String> = [
+        "mp4", "mov", "m4v", "avi", "mts", "m2ts", "mpg", "mpeg", "wmv", "mkv",
+    ]
 
     init() {
         refreshVolumes()
@@ -56,6 +85,7 @@ final class DiskMonitor: ObservableObject {
     func refreshVolumes() {
         let keys: Set<URLResourceKey> = [
             .volumeNameKey,
+            .volumeLocalizedFormatDescriptionKey,
             .volumeIsEjectableKey,
             .volumeIsRemovableKey,
             .volumeIsInternalKey,
@@ -70,8 +100,18 @@ final class DiskMonitor: ObservableObject {
             options: [.skipHiddenVolumes]
         ) ?? []
 
-        removableVolumes = urls.compactMap(Self.makeMountedVolume(from:))
+        let volumes = urls.compactMap(Self.makeMountedVolume(from:))
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        removableVolumes = volumes
+
+        let currentIDs = Set(volumes.map(\.id))
+        mediaSummaries = mediaSummaries.filter { currentIDs.contains($0.key) }
+        scanTasks.values.forEach { $0.cancel() }
+        scanTasks.removeAll()
+
+        for volume in volumes {
+            startScanningMediaSummary(for: volume)
+        }
     }
 
     private func startObserving() {
@@ -93,6 +133,7 @@ final class DiskMonitor: ObservableObject {
     private static func makeMountedVolume(from url: URL) -> MountedVolume? {
         guard let values = try? url.resourceValues(forKeys: [
             .volumeNameKey,
+            .volumeLocalizedFormatDescriptionKey,
             .volumeIsEjectableKey,
             .volumeIsRemovableKey,
             .volumeIsInternalKey,
@@ -115,6 +156,7 @@ final class DiskMonitor: ObservableObject {
             id: url.path,
             name: values.volumeName ?? url.lastPathComponent,
             url: url,
+            formatDescription: values.volumeLocalizedFormatDescription ?? "外部磁盘",
             totalCapacity: capacities.total,
             availableCapacity: capacities.available
         )
@@ -140,5 +182,46 @@ final class DiskMonitor: ObservableObject {
         }
 
         return (total: totalCapacity, available: 0)
+    }
+
+    private func startScanningMediaSummary(for volume: MountedVolume) {
+        let task = Task.detached(priority: .utility) { [volume] in
+            let summary = Self.scanMediaSummary(at: volume.url)
+            await MainActor.run {
+                self.scanTasks[volume.id] = nil
+                guard self.removableVolumes.contains(where: { $0.id == volume.id }) else { return }
+                self.mediaSummaries[volume.id] = summary
+            }
+        }
+
+        scanTasks[volume.id] = task
+    }
+
+    nonisolated private static func scanMediaSummary(at rootURL: URL) -> VolumeMediaSummary {
+        let fileManager = FileManager.default
+        let enumerator = fileManager.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        )
+
+        var photoCount = 0
+        var videoCount = 0
+
+        while let fileURL = enumerator?.nextObject() as? URL {
+            guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory != true else {
+                continue
+            }
+
+            let fileExtension = fileURL.pathExtension.lowercased()
+            if photoExtensions.contains(fileExtension) {
+                photoCount += 1
+            } else if videoExtensions.contains(fileExtension) {
+                videoCount += 1
+            }
+        }
+
+        return VolumeMediaSummary(photoCount: photoCount, videoCount: videoCount)
     }
 }

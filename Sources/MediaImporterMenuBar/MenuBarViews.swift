@@ -222,6 +222,7 @@ private struct EmptyDeviceState: View {
 }
 
 private struct VolumeCard: View {
+    @EnvironmentObject private var diskMonitor: DiskMonitor
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var importer: MediaImporter
 
@@ -363,6 +364,14 @@ private struct VolumeCard: View {
         usageTint.opacity(0.82)
     }
 
+    private var chipBackgroundColors: [Color] {
+        neutralInfoTileBackgroundColors
+    }
+
+    private var isPrimaryActionDisabled: Bool {
+        !settings.destinationFolderPath.isEmpty && importer.isImporting
+    }
+
     private var helperText: String {
         if settings.destinationFolderPath.isEmpty {
             return "请先选择一个导入目标文件夹。"
@@ -379,52 +388,116 @@ private struct VolumeCard: View {
         return "导入时会按“设备名/时间戳”创建新文件夹，不会删除设备里的原始文件。"
     }
 
+    private var mediaSummaryText: String {
+        guard let summary = diskMonitor.mediaSummaries[volume.id] else {
+            return "正在扫描照片和视频..."
+        }
+
+        return "共扫描到 \(summary.photoCount) 张照片，\(summary.videoCount) 个视频"
+    }
+
+    private func capacityTileWidths(totalWidth: CGFloat, usedMinimumWidth: CGFloat, remainingMinimumWidth: CGFloat) -> (used: CGFloat, remaining: CGFloat) {
+        let usedFraction = max(0, min(1, volume.usageFraction))
+        let remainingFraction = max(0, 1 - usedFraction)
+
+        var usedWidth = max(totalWidth * usedFraction, usedMinimumWidth)
+        var remainingWidth = max(totalWidth * remainingFraction, remainingMinimumWidth)
+        let overflow = usedWidth + remainingWidth - totalWidth
+
+        guard overflow > 0 else {
+            return (usedWidth, remainingWidth)
+        }
+
+        let usedFlexibleWidth = max(0, usedWidth - usedMinimumWidth)
+        let remainingFlexibleWidth = max(0, remainingWidth - remainingMinimumWidth)
+        let flexibleWidth = usedFlexibleWidth + remainingFlexibleWidth
+
+        if flexibleWidth > 0 {
+            usedWidth -= overflow * (usedFlexibleWidth / flexibleWidth)
+            remainingWidth -= overflow * (remainingFlexibleWidth / flexibleWidth)
+            return (usedWidth, remainingWidth)
+        }
+
+        return (usedMinimumWidth, remainingMinimumWidth)
+    }
+
+    private var capacityTilesRow: some View {
+        GeometryReader { proxy in
+            let usedFraction = max(0, min(1, volume.usageFraction))
+            let remainingFraction = max(0, 1 - usedFraction)
+            let showsUsedTile = usedFraction > 0.0001
+            let showsRemainingTile = remainingFraction > 0.0001
+            let spacing: CGFloat = (showsUsedTile && showsRemainingTile) ? 10 : 0
+            let contentWidth = max(0, proxy.size.width - spacing)
+            let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
+            let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+            let widths = capacityTileWidths(
+                totalWidth: contentWidth,
+                usedMinimumWidth: usedMinimumWidth,
+                remainingMinimumWidth: remainingMinimumWidth
+            )
+
+            HStack(spacing: spacing) {
+                if showsUsedTile {
+                    InfoTile(
+                        title: "已用空间",
+                        value: volume.usedText,
+                        backgroundColors: neutralInfoTileBackgroundColors,
+                        borderColor: infoTileBorderColor
+                    )
+                    .frame(width: widths.used, alignment: .leading)
+                }
+
+                if showsRemainingTile {
+                    InfoTile(
+                        title: "剩余空间",
+                        value: volume.availableText,
+                        backgroundColors: neutralInfoTileBackgroundColors,
+                        borderColor: infoTileBorderColor
+                    )
+                    .frame(width: widths.remaining, alignment: .leading)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: 82)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(volume.name)
-                        .font(.headline)
-                    Text(volume.subtitle)
+                        .font(.system(size: 19, weight: .bold))
+                    (
+                        Text(verbatim: volume.formatDescription)
+                        + Text(" 格式")
+                        + Text(" · 已用 ")
+                        + Text("\(usagePercent)%")
+                    )
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)
 
-                Text("\(usagePercent)% 已用")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.92))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        LinearGradient(
-                            colors: chipPalette,
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: Capsule()
-                    )
-                    .overlay {
-                        Capsule()
-                            .strokeBorder(.white.opacity(0.1), lineWidth: 1)
-                    }
+                Text(volume.roundedTotalText)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .tracking(0.2)
+                    .foregroundStyle(.white.opacity(0.95))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                .background {
+                    Capsule()
+                        .fill(Color.black.opacity(0.2))
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(Color.black.opacity(0), lineWidth: 2.5)
+                        }
+                }
             }
 
-            HStack(spacing: 10) {
-                InfoTile(
-                    title: "已用空间",
-                    value: volume.usedText,
-                    backgroundColors: neutralInfoTileBackgroundColors,
-                    borderColor: infoTileBorderColor
-                )
-                InfoTile(
-                    title: "剩余空间",
-                    value: volume.availableText,
-                    backgroundColors: neutralInfoTileBackgroundColors,
-                    borderColor: infoTileBorderColor
-                )
-            }
+            capacityTilesRow
 
             if isCurrentVolumeImporting {
                 importProgressSection
@@ -443,18 +516,58 @@ private struct VolumeCard: View {
     }
 
     private var idleSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(helperText)
-                .font(.footnote)
-                .foregroundStyle(.white.opacity(0.82))
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("扫描结果")
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.60))
+
+                Text(mediaSummaryText)
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.84))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.80)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 12)
+            .padding(.trailing, 10)
+            .padding(.vertical, 8)
+
+            Rectangle()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 1, height: 28)
 
             Button(actionButtonTitle) {
                 handlePrimaryAction()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(!settings.destinationFolderPath.isEmpty && importer.isImporting)
+            .buttonStyle(.plain)
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white.opacity(0.96))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.18))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .opacity(isPrimaryActionDisabled ? 0.55 : 1)
+            .disabled(isPrimaryActionDisabled)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.black.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                }
+        }
+        .padding(.top, -30)
     }
 
     private var importProgressSection: some View {
@@ -528,6 +641,11 @@ private struct InfoTile: View {
     let borderColor: Color
     let borderHighlightOpacity: Double
 
+    private static let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    private static let valueFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
+    private static let horizontalPadding: CGFloat = 10
+    private static let widthBuffer: CGFloat = 0
+
     init(title: String, value: String, backgroundColors: [Color] = [
         .white.opacity(0.24),
         .white.opacity(0.18),
@@ -537,6 +655,12 @@ private struct InfoTile: View {
         self.backgroundColors = backgroundColors
         self.borderColor = borderColor
         self.borderHighlightOpacity = borderHighlightOpacity
+    }
+
+    static func minimumWidth(title: String, value: String) -> CGFloat {
+        let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
+        let valueWidth = (value as NSString).size(withAttributes: [.font: valueFont]).width
+        return ceil(max(titleWidth, valueWidth) + (horizontalPadding * 2) + widthBuffer)
     }
 
     var body: some View {
@@ -549,7 +673,6 @@ private struct InfoTile: View {
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
                 .shadow(color: .black.opacity(0.14), radius: 8, x: 0, y: 2)
         }
         .padding(.horizontal, 10)
@@ -808,6 +931,7 @@ struct MenuContentView_Previews: PreviewProvider {
         id: "preview-volume",
         name: "SONY_CARD",
         url: URL(fileURLWithPath: "/Volumes/SONY_CARD", isDirectory: true),
+        formatDescription: "exFAT",
         totalCapacity: 256_000_000_000,
         availableCapacity: 143_500_000_000
     )
