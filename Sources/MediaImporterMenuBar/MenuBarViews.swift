@@ -1053,7 +1053,7 @@ private struct VolumeCard: View {
             return "正在扫描照片和视频..."
         }
 
-        return "共扫描到 \(mediaSummary.photoCount) 张照片，\(mediaSummary.videoCount) 个视频"
+        return "\(mediaSummary.photoCount) 张照片，\(mediaSummary.videoCount) 个视频"
     }
 
     private var compactCapacityChipWidth: CGFloat {
@@ -1292,11 +1292,11 @@ private struct VolumeCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("扫描结果")
                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.60))
+                    .foregroundStyle(.white.opacity(0.80))
 
                 Text(mediaSummaryText)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.84))
+                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.6))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .layoutPriority(1)
