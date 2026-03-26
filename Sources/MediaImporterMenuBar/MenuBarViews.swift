@@ -32,43 +32,6 @@ struct MenuContentView: View {
         Color(red: 0.40, green: 0.40, blue: 0.42).opacity(0.26)
     }
 
-    private var bottomBackdrop: some View {
-        Rectangle()
-            .fill(
-                LinearGradient(
-                    colors: [
-                        Color.black.opacity(0.00),
-                        Color.black.opacity(0.01),
-                        Color.black.opacity(0.03),
-                        Color.black.opacity(0.08),
-                        Color.black.opacity(0.15),
-                        Color.black.opacity(0.24),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: visibleStatusMessage == nil ? 245 : 280)
-            .blur(radius: 32)
-            .mask(
-                LinearGradient(
-                    colors: [
-                        .clear,
-                        .white.opacity(0.04),
-                        .white.opacity(0.14),
-                        .white.opacity(0.34),
-                        .white.opacity(0.68),
-                        .white,
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .offset(y: visibleStatusMessage == nil ? 38 : 48)
-            .allowsHitTesting(false)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             destinationSection
@@ -87,9 +50,6 @@ struct MenuContentView: View {
             }
 
             footerSection
-        }
-        .background(alignment: .bottom) {
-            bottomBackdrop
         }
     }
 
@@ -1438,7 +1398,7 @@ private struct VolumeCard: View {
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 }
         }
-        .padding(.top, -24)
+        .padding(.top, -34)
     }
 
     private func handlePrimaryAction() {
