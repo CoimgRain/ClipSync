@@ -79,18 +79,25 @@ struct MountedVolume: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class DiskMonitor: ObservableObject {
+    private static let volumeResourceKeys: Set<URLResourceKey> = [
+        .volumeNameKey,
+        .volumeLocalizedFormatDescriptionKey,
+        .volumeIsLocalKey,
+        .volumeIsEjectableKey,
+        .volumeIsRemovableKey,
+        .volumeIsInternalKey,
+        .volumeAvailableCapacityForImportantUsageKey,
+        .volumeAvailableCapacityForOpportunisticUsageKey,
+        .volumeAvailableCapacityKey,
+        .volumeTotalCapacityKey,
+    ]
+
     @Published private(set) var removableVolumes: [MountedVolume] = []
     @Published private(set) var mediaSummaries: [String: VolumeMediaSummary] = [:]
     @Published private(set) var mediaSummaryRefreshToken = UUID()
 
     private var observers: [NSObjectProtocol] = []
     private let notificationCenter = NSWorkspace.shared.notificationCenter
-    nonisolated private static let photoExtensions: Set<String> = [
-        "jpg", "jpeg", "png", "heic", "gif", "bmp", "tif", "tiff", "raw", "dng",
-    ]
-    nonisolated private static let videoExtensions: Set<String> = [
-        "mp4", "mov", "m4v", "avi", "mts", "m2ts", "mpg", "mpeg", "wmv", "mkv",
-    ]
 
     init() {
         refreshVolumes()
@@ -105,21 +112,8 @@ final class DiskMonitor: ObservableObject {
 #endif
 
     func refreshVolumes() {
-        let keys: Set<URLResourceKey> = [
-            .volumeNameKey,
-            .volumeLocalizedFormatDescriptionKey,
-            .volumeIsLocalKey,
-            .volumeIsEjectableKey,
-            .volumeIsRemovableKey,
-            .volumeIsInternalKey,
-            .volumeAvailableCapacityForImportantUsageKey,
-            .volumeAvailableCapacityForOpportunisticUsageKey,
-            .volumeAvailableCapacityKey,
-            .volumeTotalCapacityKey,
-        ]
-
         let urls = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: Array(keys),
+            includingResourceValuesForKeys: Array(Self.volumeResourceKeys),
             options: [.skipHiddenVolumes]
         ) ?? []
 
@@ -149,18 +143,7 @@ final class DiskMonitor: ObservableObject {
     }
 
     private static func makeMountedVolume(from url: URL) -> MountedVolume? {
-        guard let values = try? url.resourceValues(forKeys: [
-            .volumeNameKey,
-            .volumeLocalizedFormatDescriptionKey,
-            .volumeIsLocalKey,
-            .volumeIsEjectableKey,
-            .volumeIsRemovableKey,
-            .volumeIsInternalKey,
-            .volumeAvailableCapacityForImportantUsageKey,
-            .volumeAvailableCapacityForOpportunisticUsageKey,
-            .volumeAvailableCapacityKey,
-            .volumeTotalCapacityKey,
-        ]) else {
+        guard let values = try? url.resourceValues(forKeys: Self.volumeResourceKeys) else {
             return nil
         }
 
@@ -212,11 +195,7 @@ final class DiskMonitor: ObservableObject {
         }
 
         let existingNameIndex = destinationRoot.map {
-            MediaFileCatalog.buildExistingNameIndex(
-                at: $0,
-                photoExtensions: Self.photoExtensions,
-                videoExtensions: Self.videoExtensions
-            )
+            MediaFileCatalog.buildExistingNameIndex(at: $0)
         } ?? .empty
 
         var updatedSummaries: [String: VolumeMediaSummary] = [:]
@@ -272,16 +251,19 @@ final class DiskMonitor: ObservableObject {
             }
 
             let fileExtension = fileURL.pathExtension.lowercased()
-            if photoExtensions.contains(fileExtension) {
+            switch MediaCatalogSupport.kind(forNormalizedExtension: fileExtension) {
+            case .photo:
                 photoCount += 1
                 if existingNameIndex.contains(fileURL.lastPathComponent, kind: .photo) {
                     importedPhotoCount += 1
                 }
-            } else if videoExtensions.contains(fileExtension) {
+            case .video:
                 videoCount += 1
                 if existingNameIndex.contains(fileURL.lastPathComponent, kind: .video) {
                     importedVideoCount += 1
                 }
+            case nil:
+                break
             }
         }
 

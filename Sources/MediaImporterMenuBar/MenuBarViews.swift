@@ -108,11 +108,16 @@ struct MenuContentView: View {
     private let cardStackSpacing: CGFloat = 12
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: cardStackSpacing) {
+            destinationSection
             deviceSection
+
+            Spacer(minLength: 0)
+
             bottomSection
         }
         .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.easeInOut(duration: 0.2), value: visibleStatusMessage)
         .task(id: mediaSummaryRefreshTaskID) {
             await refreshMediaSummaries()
@@ -219,21 +224,16 @@ struct MenuContentView: View {
 
     @ViewBuilder
     private var deviceSection: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: cardStackSpacing) {
-                destinationSection
-
-                if diskMonitor.removableVolumes.isEmpty {
-                    EmptyDeviceState()
-                } else {
-                    ForEach(diskMonitor.removableVolumes) { volume in
-                        VolumeCard(volume: volume)
-                    }
+        VStack(spacing: cardStackSpacing) {
+            if diskMonitor.removableVolumes.isEmpty {
+                EmptyDeviceState()
+            } else {
+                ForEach(diskMonitor.removableVolumes) { volume in
+                    VolumeCard(volume: volume)
                 }
             }
-            .padding(.vertical, 2)
         }
-        .frame(maxHeight: 420)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var footerSection: some View {
@@ -488,8 +488,7 @@ private struct FolderClassificationRulesView: View {
     @EnvironmentObject private var settings: AppSettings
 
     @State private var testFolderName = ""
-    @State private var feedbackMessage: String?
-    @State private var isCreatingFolders = false
+    @State private var isShowingLogsSheet = false
 
     let onDone: () -> Void
 
@@ -501,12 +500,13 @@ private struct FolderClassificationRulesView: View {
         return settings.testRuleMatch(for: testFolderName)
     }
 
-    private static let logDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "zh_CN")
-        formatter.dateFormat = "MM-dd HH:mm:ss"
-        return formatter
-    }()
+    private var logsSummaryText: String {
+        if settings.classificationLogs.isEmpty {
+            return "还没有日志。以后导入时命中规则，这里会自动记录。"
+        }
+
+        return "目前已有 \(settings.classificationLogs.count) 条日志，需要时再点开查看就行。"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -514,7 +514,7 @@ private struct FolderClassificationRulesView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("文件夹分类规则")
                         .font(.title3.bold())
-                    Text("按列表顺序匹配原始文件夹名称；命中规则后，对应文件夹中的视频会自动进入指定目标文件夹。")
+                    Text("想要的效果很简单：当原始文件夹名里包含某个词时，对应视频就自动放进你指定的目标子文件夹。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -527,98 +527,132 @@ private struct FolderClassificationRulesView: View {
                 .buttonStyle(.borderedProminent)
             }
 
-            if let feedbackMessage {
-                Text(feedbackMessage)
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    configurationSection
+                    topOverviewSection
                     ruleListSection
-                    testSection
-                    logsSection
+                    supplementarySection
+                    secondaryToolsSection
                 }
                 .padding(.bottom, 4)
             }
         }
         .padding(20)
         .frame(width: 760, height: 720, alignment: .topLeading)
+        .sheet(isPresented: $isShowingLogsSheet) {
+            FolderClassificationLogsSheetView()
+                .environmentObject(settings)
+        }
     }
 
-    private var configurationSection: some View {
+    private var topOverviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("基础设置")
                 .font(.headline)
 
-            Toggle("启用文件夹分类规则", isOn: $settings.folderClassificationEnabled)
+            HStack(alignment: .top, spacing: 14) {
+                stepOneSection
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(minHeight: 138, alignment: .topLeading)
 
-            Picker("同名文件处理", selection: $settings.folderConflictStrategy) {
-                ForEach(FolderConflictStrategy.allCases) { strategy in
-                    Text(strategy.title).tag(strategy)
-                }
+                stepTwoSection
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .frame(minHeight: 138, alignment: .topLeading)
             }
-            .pickerStyle(.segmented)
+        }
+    }
 
-            Text(settings.folderConflictStrategy.detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private var secondaryToolsSection: some View {
+        HStack(alignment: .top, spacing: 14) {
+            testSection
+                .frame(maxWidth: .infinity, alignment: .topLeading)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("当前导入目标")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+            logsSection
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
 
+    private var stepOneSection: some View {
+        FolderClassificationSettingCard(
+            badgeText: "步骤 1",
+            title: "导入目标文件夹",
+            detail: settings.destinationFolderPath.isEmpty
+                ? "还没有选择导入目标文件夹。"
+                : "已经选择好导入目标文件夹了。"
+        ) {
+            HStack(alignment: .top, spacing: 10) {
                 Text(settings.destinationFolderPath.isEmpty ? "还没有选择导入文件夹" : settings.destinationFolderPath)
-                    .font(.footnote)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .truncationMode(.middle)
-            }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            HStack(spacing: 10) {
                 Button("选择目标文件夹") {
-                    settings.chooseDestinationFolderForClassification()
+                    settings.chooseDestinationFolder()
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+    }
 
-                Button("预创建分类文件夹") {
-                    createClassificationFolders()
-                }
-                .buttonStyle(.bordered)
-                .disabled(isCreatingFolders || settings.destinationFolderPath.isEmpty)
+    private var stepTwoSection: some View {
+        FolderClassificationSettingCard(
+            badgeText: "步骤 2",
+            title: "开启自动分类",
+            detail: "开启后，下面的规则才会参与匹配。"
+        ) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("开启文件夹自动分类")
+                    .font(.callout.weight(.semibold))
 
                 Spacer()
 
-                Button("导入规则") {
-                    importRules()
-                }
-                .buttonStyle(.bordered)
-
-                Button("导出规则") {
-                    exportRules()
-                }
-                .buttonStyle(.bordered)
+                Toggle("", isOn: $settings.folderClassificationEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
         }
-        .padding(14)
+    }
+
+    private var supplementarySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("补充设置")
+                .font(.headline)
+
+            FolderClassificationSettingCard(
+                badgeText: "补充设置",
+                title: "同名文件处理",
+                detail: settings.folderConflictStrategy.detail
+            ) {
+                Picker("", selection: $settings.folderConflictStrategy) {
+                    ForEach(FolderConflictStrategy.allCases) { strategy in
+                        Text(strategy.title).tag(strategy)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+            }
+        }
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var ruleListSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("规则列表")
-                        .font(.headline)
-                    Text("优先级从上到下；当多个规则同时命中时，系统只采用最前面的那一条。")
+                    FolderClassificationSectionTitle(
+                        badgeText: "步骤 3",
+                        title: "规则列表"
+                    )
+                    Text("新增规则后，填写“包含什么词”和“放到哪个子文件夹”，就可以开始自动分类。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -631,13 +665,26 @@ private struct FolderClassificationRulesView: View {
                     Label("新增规则", systemImage: "plus")
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
 
+            Text("匹配顺序从上到下依次执行，命中第一条就停止。可以把更常用的规则放在更上面。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
             if settings.folderClassificationRules.isEmpty {
-                Text("还没有规则。新增后即可按原始文件夹名称自动把视频归到指定子文件夹。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 10)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("还没有规则。")
+                        .font(.subheadline.weight(.semibold))
+                    Text("新增一条后，填上“包含什么词”和“放到哪个文件夹”，就可以开始自动分类。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 10)
             } else {
                 VStack(spacing: 10) {
                     ForEach(Array(zip(settings.folderClassificationRules.indices, $settings.folderClassificationRules)), id: \.1.id) { index, ruleBinding in
@@ -654,36 +701,36 @@ private struct FolderClassificationRulesView: View {
                 }
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var testSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("规则测试")
+            Text("试一下规则")
                 .font(.headline)
 
-            TextField("输入原始文件夹名称，例如 POK_001", text: $testFolderName)
+            TextField("输入一个原始文件夹名称，例如 POK_001", text: $testFolderName)
                 .textFieldStyle(.roundedBorder)
 
             Group {
                 if testFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("输入一个文件夹名称，系统会按当前规则顺序模拟匹配结果。")
+                    Text("输入后，系统会按当前规则顺序帮你模拟一次结果。")
                         .foregroundStyle(.secondary)
                 } else if let matchedRuleForTest {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("命中规则：\(matchedRuleForTest.keyword)")
-                        Text("目标文件夹：\(matchedRuleForTest.normalizedTargetFolderPath)")
+                        Text("会命中关键词：\(matchedRuleForTest.keyword)")
+                        Text("视频会进入：\(matchedRuleForTest.normalizedTargetFolderPath)")
                     }
                 } else {
-                    Text("没有命中任何规则，将按默认导入逻辑进入设备名/时间戳目录。")
+                    Text("没有命中任何规则，系统会按默认导入方式放进“设备名/时间戳”目录。")
                         .foregroundStyle(.secondary)
                 }
             }
             .font(.footnote)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
@@ -694,70 +741,27 @@ private struct FolderClassificationRulesView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("操作日志")
                         .font(.headline)
-                    Text("记录自动分类匹配到的文件以及默认导入结果，最新记录会显示在最上面。")
+                    Text("日志单独打开看，这里不再整页铺开，界面会更清爽。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                Button("清空日志") {
-                    settings.clearClassificationLogs()
+                Button("打开日志") {
+                    isShowingLogsSheet = true
                 }
                 .buttonStyle(.bordered)
-                .disabled(settings.classificationLogs.isEmpty)
+                .controlSize(.small)
             }
 
-            if settings.classificationLogs.isEmpty {
-                Text("还没有自动分类日志。下一次导入命中规则后，这里会显示详细记录。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 10)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(settings.classificationLogs.prefix(14)) { entry in
-                        FolderClassificationLogRow(entry: entry, formatter: Self.logDateFormatter)
-                    }
-                }
-            }
+            Text(logsSummaryText)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-
-    private func createClassificationFolders() {
-        isCreatingFolders = true
-        Task {
-            defer { isCreatingFolders = false }
-
-            do {
-                let createdCount = try await settings.createClassificationFolders()
-                feedbackMessage = createdCount == 0 ? "当前没有可创建的启用规则文件夹。" : "已创建 \(createdCount) 个分类文件夹。"
-            } catch {
-                feedbackMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func importRules() {
-        do {
-            if let importedCount = try settings.importFolderClassificationRules() {
-                feedbackMessage = "已导入 \(importedCount) 条规则。"
-            }
-        } catch {
-            feedbackMessage = "导入规则失败：\(error.localizedDescription)"
-        }
-    }
-
-    private func exportRules() {
-        do {
-            if let exportURL = try settings.exportFolderClassificationRules() {
-                feedbackMessage = "规则已导出到 \(exportURL.lastPathComponent)。"
-            }
-        } catch {
-            feedbackMessage = "导出规则失败：\(error.localizedDescription)"
-        }
     }
 }
 
@@ -772,14 +776,12 @@ private struct FolderClassificationRuleRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Toggle("启用", isOn: $rule.isEnabled)
-                    .toggleStyle(.switch)
+                FolderClassificationBadge(text: "规则 \(index + 1)")
 
-                Text("优先级 \(index + 1)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                Toggle("启用这条规则", isOn: $rule.isEnabled)
+                    .toggleStyle(.switch)
 
                 Spacer()
 
@@ -789,6 +791,7 @@ private struct FolderClassificationRuleRow: View {
                     Image(systemName: "arrow.up")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(!canMoveUp)
 
                 Button {
@@ -797,6 +800,7 @@ private struct FolderClassificationRuleRow: View {
                     Image(systemName: "arrow.down")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(!canMoveDown)
 
                 Button(role: .destructive) {
@@ -805,29 +809,44 @@ private struct FolderClassificationRuleRow: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
             }
 
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("关键词")
+                    Text("当原始文件夹名里包含")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     TextField("例如 pok", text: $rule.keyword)
                         .textFieldStyle(.roundedBorder)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("目标文件夹")
+                    Text("就把视频放到这个子文件夹")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    TextField("例如 pocket/final", text: $rule.targetFolderName)
+                    TextField("例如 Pocket 或 Pocket/Final", text: $rule.targetFolderName)
                         .textFieldStyle(.roundedBorder)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text(rule.isConfigured ? "将匹配包含“\(rule.keyword)”的原始文件夹名，命中后目标目录为 \(rule.normalizedTargetFolderPath)" : "关键词和目标文件夹都填好后，这条规则才会参与匹配。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                if rule.isConfigured {
+                    Text("效果预览")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text("如果文件夹名里包含“\(rule.keyword)”，视频会自动进入“\(rule.normalizedTargetFolderPath)”。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("把上面两项都填好后，这条规则才会生效。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -884,6 +903,123 @@ private struct FolderClassificationLogRow: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct FolderClassificationLogsSheetView: View {
+    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.dismiss) private var dismiss
+
+    private static let logDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.dateFormat = "MM-dd HH:mm:ss"
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("操作日志")
+                        .font(.title3.bold())
+                    Text("这里会记录每次自动分类命中了哪条规则，以及最终放到了哪里。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("清空日志") {
+                    settings.clearClassificationLogs()
+                }
+                .buttonStyle(.bordered)
+                .disabled(settings.classificationLogs.isEmpty)
+
+                Button("完成") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if settings.classificationLogs.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("还没有日志。")
+                        .font(.headline)
+                    Text("等下一次导入命中规则后，这里就会出现记录。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.top, 12)
+            } else {
+                ScrollView {
+                    VStack(spacing: 8) {
+                        ForEach(settings.classificationLogs) { entry in
+                            FolderClassificationLogRow(entry: entry, formatter: Self.logDateFormatter)
+                        }
+                    }
+                    .padding(.bottom, 4)
+                }
+            }
+        }
+        .padding(20)
+        .frame(width: 720, height: 560, alignment: .topLeading)
+    }
+}
+
+private struct FolderClassificationSettingCard<Content: View>: View {
+    let badgeText: String
+    let title: String
+    let detail: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            FolderClassificationSectionTitle(
+                badgeText: badgeText,
+                title: title
+            )
+
+            content
+
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+        }
+    }
+}
+
+private struct FolderClassificationSectionTitle: View {
+    let badgeText: String
+    let title: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            FolderClassificationBadge(text: badgeText)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+        }
+    }
+}
+
+private struct FolderClassificationBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.bold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.blue.opacity(0.16), in: Capsule())
     }
 }
 
@@ -999,6 +1135,7 @@ private struct VolumeCard: View {
     @State private var isHoveringCapacityChip = false
     @State private var isHoveringOpenVolumeAction = false
     @State private var isHoveringEjectVolumeAction = false
+    @State private var isHoveringCard = false
     @State private var isPrimaryActionHovered = false
     @State private var isCancelImportHovered = false
     @State private var headerRowWidth: CGFloat = 0
@@ -1009,79 +1146,20 @@ private struct VolumeCard: View {
         importer.currentImportVolumeID == volume.id && importer.importProgress != nil
     }
 
+    private var visualStyle: VolumeVisualStyle {
+        volume.visualStyle
+    }
+
     private var usagePercent: Int {
-        Int((volume.usageFraction * 100).rounded())
+        volume.usagePercent
     }
 
     private var usageTint: Color {
-        switch volume.usageFraction {
-        case ..<0.5:
-            return Color(red: 0.17, green: 0.62, blue: 0.39)
-        case ..<0.75:
-            return Color(red: 0.83, green: 0.62, blue: 0.18)
-        case ..<0.9:
-            return Color(red: 0.84, green: 0.45, blue: 0.18)
-        default:
-            return Color(red: 0.78, green: 0.24, blue: 0.25)
-        }
+        visualStyle.usageTint
     }
 
     private var cardPalette: [Color] {
-        switch volume.usageFraction {
-        case ..<0.5:
-            return [
-                Color(red: 0.35, green: 0.78, blue: 0.54),
-                Color(red: 0.22, green: 0.63, blue: 0.40),
-                Color(red: 0.16, green: 0.50, blue: 0.31),
-                Color(red: 0.13, green: 0.42, blue: 0.26),
-            ]
-        case ..<0.75:
-            return [
-                Color(red: 0.91, green: 0.77, blue: 0.40),
-                Color(red: 0.82, green: 0.60, blue: 0.24),
-                Color(red: 0.72, green: 0.48, blue: 0.18),
-                Color(red: 0.58, green: 0.37, blue: 0.14),
-            ]
-        case ..<0.9:
-            return [
-                Color(red: 0.94, green: 0.66, blue: 0.34),
-                Color(red: 0.86, green: 0.50, blue: 0.20),
-                Color(red: 0.73, green: 0.38, blue: 0.15),
-                Color(red: 0.60, green: 0.28, blue: 0.12),
-            ]
-        default:
-            return [
-                Color(red: 0.88, green: 0.44, blue: 0.42),
-                Color(red: 0.76, green: 0.30, blue: 0.28),
-                Color(red: 0.62, green: 0.22, blue: 0.22),
-                Color(red: 0.50, green: 0.16, blue: 0.18),
-            ]
-        }
-    }
-
-    private var chipPalette: [Color] {
-        switch volume.usageFraction {
-        case ..<0.5:
-            return [
-                Color(red: 0.15, green: 0.42, blue: 0.26).opacity(0.7),
-                Color(red: 0.10, green: 0.30, blue: 0.18).opacity(0.7),
-            ]
-        case ..<0.75:
-            return [
-                Color(red: 0.46, green: 0.33, blue: 0.12).opacity(0.72),
-                Color(red: 0.33, green: 0.23, blue: 0.09).opacity(0.72),
-            ]
-        case ..<0.9:
-            return [
-                Color(red: 0.49, green: 0.24, blue: 0.10).opacity(0.72),
-                Color(red: 0.35, green: 0.17, blue: 0.08).opacity(0.72),
-            ]
-        default:
-            return [
-                Color(red: 0.43, green: 0.15, blue: 0.16).opacity(0.72),
-                Color(red: 0.29, green: 0.10, blue: 0.11).opacity(0.72),
-            ]
-        }
+        visualStyle.cardPalette
     }
 
     private var cardShape: RoundedRectangle {
@@ -1097,16 +1175,22 @@ private struct VolumeCard: View {
     }
 
     private var animationStyle: CardAnimationStyle {
-        switch volume.usageFraction {
-        case ..<0.5:
-            return .aurora
-        case ..<0.75:
-            return .ribbon
-        case ..<0.9:
-            return .bloom
-        default:
-            return .ember
-        }
+        visualStyle.animationStyle
+    }
+
+    private var expandableSectionAnimation: Animation {
+        .spring(response: 0.30, dampingFraction: 0.84, blendDuration: 0.18)
+    }
+
+    private var shouldShowFooterSection: Bool {
+        isCurrentVolumeImporting || isHoveringCard
+    }
+
+    private var footerSectionTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: .bottom).combined(with: .opacity),
+            removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+        )
     }
 
     private var cardBackground: some View {
@@ -1326,15 +1410,6 @@ private struct VolumeCard: View {
         .lineLimit(1)
         .minimumScaleFactor(0.9)
         .allowsTightening(true)
-    }
-
-    private func summaryLineText(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.6))
-            .lineLimit(1)
-            .minimumScaleFactor(0.9)
-            .allowsTightening(true)
     }
 
     private var compactCapacityChipWidth: CGFloat {
@@ -1565,47 +1640,49 @@ private struct VolumeCard: View {
     }
 
     private var capacityTilesRow: some View {
-        GeometryReader { proxy in
-            let usedFraction = max(0, min(1, volume.usageFraction))
-            let remainingFraction = max(0, 1 - usedFraction)
-            let showsUsedTile = usedFraction > 0.0001
-            let showsRemainingTile = remainingFraction > 0.0001
-            let separatorWidth: CGFloat = (showsUsedTile && showsRemainingTile) ? 12 : 0
-            let contentWidth = max(0, proxy.size.width - separatorWidth)
-            let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
-            let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
-            let widths = capacityTileWidths(
-                totalWidth: contentWidth,
-                usedMinimumWidth: usedMinimumWidth,
-                remainingMinimumWidth: remainingMinimumWidth
-            )
-            let requiresStackedLayout = showsUsedTile && showsRemainingTile
-                && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > proxy.size.width)
+        let usedFraction = max(0, min(1, volume.usageFraction))
+        let remainingFraction = max(0, 1 - usedFraction)
+        let showsUsedTile = usedFraction > 0.0001
+        let showsRemainingTile = remainingFraction > 0.0001
+        let separatorWidth: CGFloat = (showsUsedTile && showsRemainingTile) ? 12 : 0
+        let availableWidth = max(headerRowWidth, 0)
+        let hasMeasuredWidth = availableWidth > 0
+        let contentWidth = max(0, availableWidth - separatorWidth)
+        let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
+        let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+        let widths = capacityTileWidths(
+            totalWidth: contentWidth,
+            usedMinimumWidth: usedMinimumWidth,
+            remainingMinimumWidth: remainingMinimumWidth
+        )
+        let requiresStackedLayout = hasMeasuredWidth && showsUsedTile && showsRemainingTile
+            && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > availableWidth)
 
-            Group {
-                if requiresStackedLayout {
-                    VStack(spacing: 8) {
-                        if showsUsedTile {
-                            InfoTile(
-                                title: "已用空间",
-                                value: volume.usedText,
-                                backgroundColors: neutralInfoTileBackgroundColors,
-                                borderColor: infoTileBorderColor
-                            )
-                        }
-
-                        if showsRemainingTile {
-                            InfoTile(
-                                title: "剩余空间",
-                                value: volume.availableText,
-                                backgroundColors: neutralInfoTileBackgroundColors,
-                                borderColor: infoTileBorderColor
-                            )
-                        }
+        return Group {
+            if requiresStackedLayout {
+                VStack(spacing: 8) {
+                    if showsUsedTile {
+                        InfoTile(
+                            title: "已用空间",
+                            value: volume.usedText,
+                            backgroundColors: neutralInfoTileBackgroundColors,
+                            borderColor: infoTileBorderColor
+                        )
                     }
-                } else {
-                    HStack(spacing: 0) {
-                        if showsUsedTile {
+
+                    if showsRemainingTile {
+                        InfoTile(
+                            title: "剩余空间",
+                            value: volume.availableText,
+                            backgroundColors: neutralInfoTileBackgroundColors,
+                            borderColor: infoTileBorderColor
+                        )
+                    }
+                }
+            } else {
+                HStack(spacing: 0) {
+                    if showsUsedTile {
+                        if hasMeasuredWidth {
                             InfoTile(
                                 title: "已用空间",
                                 value: volume.usedText,
@@ -1613,16 +1690,25 @@ private struct VolumeCard: View {
                                 borderColor: infoTileBorderColor
                             )
                             .frame(width: widths.used, alignment: .leading)
+                        } else {
+                            InfoTile(
+                                title: "已用空间",
+                                value: volume.usedText,
+                                backgroundColors: neutralInfoTileBackgroundColors,
+                                borderColor: infoTileBorderColor
+                            )
                         }
+                    }
 
-                        if showsUsedTile && showsRemainingTile {
-                            Circle()
-                                .fill(.white.opacity(0.5))
-                                .frame(width: 4, height: 4)
-                                .frame(width: separatorWidth)
-                        }
+                    if showsUsedTile && showsRemainingTile {
+                        Circle()
+                            .fill(.white.opacity(0.5))
+                            .frame(width: 4, height: 4)
+                            .frame(width: separatorWidth)
+                    }
 
-                        if showsRemainingTile {
+                    if showsRemainingTile {
+                        if hasMeasuredWidth {
                             InfoTile(
                                 title: "剩余空间",
                                 value: volume.availableText,
@@ -1630,26 +1716,29 @@ private struct VolumeCard: View {
                                 borderColor: infoTileBorderColor
                             )
                             .frame(width: widths.remaining, alignment: .leading)
+                        } else {
+                            InfoTile(
+                                title: "剩余空间",
+                                value: volume.availableText,
+                                backgroundColors: neutralInfoTileBackgroundColors,
+                                borderColor: infoTileBorderColor
+                            )
                         }
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(minHeight: 84)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var formatSummaryView: some View {
         ZStack(alignment: .topLeading) {
-            if formatSummaryLayoutMode == .singleLine {
+            switch formatSummaryLayoutMode {
+            case .singleLine:
                 singleLineFormatSummaryView
-            }
-
-            if formatSummaryLayoutMode == .splitBeforeUsed {
+            case .splitBeforeUsed:
                 splitBeforeUsedFormatSummaryView
-            }
-
-            if formatSummaryLayoutMode == .wrapped {
+            case .wrapped:
                 wrappedFormatSummaryView
                     .transition(formatSummaryTransition)
             }
@@ -1688,10 +1777,15 @@ private struct VolumeCard: View {
 
             capacityTilesRow
 
-            if isCurrentVolumeImporting {
-                importProgressSection
-            } else {
-                idleSection
+            if shouldShowFooterSection {
+                Group {
+                    if isCurrentVolumeImporting {
+                        importProgressSection
+                    } else {
+                        idleSection
+                    }
+                }
+                .transition(footerSectionTransition)
             }
         }
         .padding(16)
@@ -1701,6 +1795,18 @@ private struct VolumeCard: View {
         .overlay {
             cardShape
                 .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+        }
+        .contentShape(cardShape)
+        .animation(expandableSectionAnimation, value: shouldShowFooterSection)
+        .onHover { hovering in
+            withAnimation(expandableSectionAnimation) {
+                isHoveringCard = hovering
+            }
+
+            if !hovering {
+                isPrimaryActionHovered = false
+                isCancelImportHovered = false
+            }
         }
     }
 
@@ -1777,7 +1883,6 @@ private struct VolumeCard: View {
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 }
         }
-        .padding(.top, -33)
     }
 
     private var importProgressSection: some View {
@@ -1887,7 +1992,6 @@ private struct VolumeCard: View {
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 }
         }
-        .padding(.top, -34)
     }
 
     private func handlePrimaryAction() {
@@ -2049,11 +2153,72 @@ private struct HeaderRowWidthPreferenceKey: PreferenceKey {
     }
 }
 
-private enum CardAnimationStyle {
+enum CardAnimationStyle {
     case aurora
     case ribbon
     case bloom
     case ember
+}
+
+struct VolumeVisualStyle {
+    let usageTint: Color
+    let cardPalette: [Color]
+    let animationStyle: CardAnimationStyle
+}
+
+extension MountedVolume {
+    var usagePercent: Int {
+        Int((usageFraction * 100).rounded())
+    }
+
+    var visualStyle: VolumeVisualStyle {
+        switch usageFraction {
+        case ..<0.5:
+            return VolumeVisualStyle(
+                usageTint: Color(red: 0.17, green: 0.62, blue: 0.39),
+                cardPalette: [
+                    Color(red: 0.35, green: 0.78, blue: 0.54),
+                    Color(red: 0.22, green: 0.63, blue: 0.40),
+                    Color(red: 0.16, green: 0.50, blue: 0.31),
+                    Color(red: 0.13, green: 0.42, blue: 0.26),
+                ],
+                animationStyle: .aurora
+            )
+        case ..<0.75:
+            return VolumeVisualStyle(
+                usageTint: Color(red: 0.83, green: 0.62, blue: 0.18),
+                cardPalette: [
+                    Color(red: 0.91, green: 0.77, blue: 0.40),
+                    Color(red: 0.82, green: 0.60, blue: 0.24),
+                    Color(red: 0.72, green: 0.48, blue: 0.18),
+                    Color(red: 0.58, green: 0.37, blue: 0.14),
+                ],
+                animationStyle: .ribbon
+            )
+        case ..<0.9:
+            return VolumeVisualStyle(
+                usageTint: Color(red: 0.84, green: 0.45, blue: 0.18),
+                cardPalette: [
+                    Color(red: 0.94, green: 0.66, blue: 0.34),
+                    Color(red: 0.86, green: 0.50, blue: 0.20),
+                    Color(red: 0.73, green: 0.38, blue: 0.15),
+                    Color(red: 0.60, green: 0.28, blue: 0.12),
+                ],
+                animationStyle: .bloom
+            )
+        default:
+            return VolumeVisualStyle(
+                usageTint: Color(red: 0.78, green: 0.24, blue: 0.25),
+                cardPalette: [
+                    Color(red: 0.88, green: 0.44, blue: 0.42),
+                    Color(red: 0.76, green: 0.30, blue: 0.28),
+                    Color(red: 0.62, green: 0.22, blue: 0.22),
+                    Color(red: 0.50, green: 0.16, blue: 0.18),
+                ],
+                animationStyle: .ember
+            )
+        }
+    }
 }
 
 private struct AnimatedOrbField: View {

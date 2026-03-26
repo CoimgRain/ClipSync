@@ -129,25 +129,25 @@ final class AppSettings: ObservableObject {
     // 这里保留一个可读的 path，主要用于 UI 显示和兼容旧配置。
     @Published var destinationFolderPath: String {
         didSet {
-            UserDefaults.standard.set(destinationFolderPath, forKey: Self.destinationFolderKey)
+            Self.defaults.set(destinationFolderPath, forKey: Self.destinationFolderKey)
         }
     }
 
     @Published var autoImportEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(autoImportEnabled, forKey: Self.autoImportKey)
+            Self.defaults.set(autoImportEnabled, forKey: Self.autoImportKey)
         }
     }
 
     @Published var folderClassificationEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(folderClassificationEnabled, forKey: Self.folderClassificationEnabledKey)
+            Self.defaults.set(folderClassificationEnabled, forKey: Self.folderClassificationEnabledKey)
         }
     }
 
     @Published var folderConflictStrategy: FolderConflictStrategy {
         didSet {
-            UserDefaults.standard.set(folderConflictStrategy.rawValue, forKey: Self.folderConflictStrategyKey)
+            Self.defaults.set(folderConflictStrategy.rawValue, forKey: Self.folderConflictStrategyKey)
         }
     }
 
@@ -171,12 +171,13 @@ final class AppSettings: ObservableObject {
     private static let folderClassificationRulesKey = "folderClassificationRules"
     private static let classificationLogsKey = "classificationLogs"
     private static let maxClassificationLogs = 300
+    private static let defaults = UserDefaults.standard
 
     init() {
         self.destinationFolderPath = ""
-        self.autoImportEnabled = UserDefaults.standard.bool(forKey: Self.autoImportKey)
-        self.folderClassificationEnabled = UserDefaults.standard.object(forKey: Self.folderClassificationEnabledKey) as? Bool ?? false
-        self.folderConflictStrategy = FolderConflictStrategy(rawValue: UserDefaults.standard.string(forKey: Self.folderConflictStrategyKey) ?? "") ?? .rename
+        self.autoImportEnabled = Self.defaults.bool(forKey: Self.autoImportKey)
+        self.folderClassificationEnabled = Self.defaults.object(forKey: Self.folderClassificationEnabledKey) as? Bool ?? false
+        self.folderConflictStrategy = FolderConflictStrategy(rawValue: Self.defaults.string(forKey: Self.folderConflictStrategyKey) ?? "") ?? .rename
         self.folderClassificationRules = Self.decode([FolderClassificationRule].self, from: Self.folderClassificationRulesKey) ?? []
         self.classificationLogs = Self.decode([FolderClassificationLogEntry].self, from: Self.classificationLogsKey) ?? []
         restoreDestinationFolder()
@@ -363,7 +364,7 @@ final class AppSettings: ObservableObject {
             return
         }
 
-        destinationFolderPath = UserDefaults.standard.string(forKey: Self.destinationFolderKey) ?? ""
+        destinationFolderPath = Self.defaults.string(forKey: Self.destinationFolderKey) ?? ""
         guard !destinationFolderPath.isEmpty else { return }
         saveDestinationFolder(URL(fileURLWithPath: destinationFolderPath, isDirectory: true))
     }
@@ -376,10 +377,10 @@ final class AppSettings: ObservableObject {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
-            UserDefaults.standard.set(bookmark, forKey: Self.destinationFolderBookmarkKey)
+            Self.defaults.set(bookmark, forKey: Self.destinationFolderBookmarkKey)
             destinationFolderPath = url.path
         } catch {
-            UserDefaults.standard.removeObject(forKey: Self.destinationFolderBookmarkKey)
+            Self.defaults.removeObject(forKey: Self.destinationFolderBookmarkKey)
             destinationFolderPath = url.path
         }
     }
@@ -397,7 +398,7 @@ final class AppSettings: ObservableObject {
         refreshBookmarkIfNeeded: Bool = false
     ) -> URL? {
         // 如果 bookmark 失效或过期，尽量在这里自动刷新。
-        if let bookmarkData = UserDefaults.standard.data(forKey: Self.destinationFolderBookmarkKey) {
+        if let bookmarkData = Self.defaults.data(forKey: Self.destinationFolderBookmarkKey) {
             do {
                 var isStale = false
                 let resolvedURL = try URL(
@@ -413,7 +414,7 @@ final class AppSettings: ObservableObject {
 
                 return resolvedURL
             } catch {
-                UserDefaults.standard.removeObject(forKey: Self.destinationFolderBookmarkKey)
+                Self.defaults.removeObject(forKey: Self.destinationFolderBookmarkKey)
             }
         }
 
@@ -422,25 +423,24 @@ final class AppSettings: ObservableObject {
     }
 
     private func persistFolderClassificationRules() {
-        do {
-            let data = try JSONEncoder().encode(folderClassificationRules)
-            UserDefaults.standard.set(data, forKey: Self.folderClassificationRulesKey)
-        } catch {
-            UserDefaults.standard.removeObject(forKey: Self.folderClassificationRulesKey)
-        }
+        persistEncoded(folderClassificationRules, forKey: Self.folderClassificationRulesKey)
     }
 
     private func persistClassificationLogs() {
+        persistEncoded(classificationLogs, forKey: Self.classificationLogsKey)
+    }
+
+    private func persistEncoded<T: Encodable>(_ value: T, forKey key: String) {
         do {
-            let data = try JSONEncoder().encode(classificationLogs)
-            UserDefaults.standard.set(data, forKey: Self.classificationLogsKey)
+            let data = try JSONEncoder().encode(value)
+            Self.defaults.set(data, forKey: key)
         } catch {
-            UserDefaults.standard.removeObject(forKey: Self.classificationLogsKey)
+            Self.defaults.removeObject(forKey: key)
         }
     }
 
     private static func decode<T: Decodable>(_ type: T.Type, from key: String) -> T? {
-        guard let data = UserDefaults.standard.data(forKey: key) else {
+        guard let data = defaults.data(forKey: key) else {
             return nil
         }
 

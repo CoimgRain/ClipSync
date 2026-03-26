@@ -6,6 +6,28 @@ enum MediaFileKind: Sendable {
     case video
 }
 
+enum MediaCatalogSupport {
+    static let photoExtensions: Set<String> = [
+        "jpg", "jpeg", "png", "heic", "gif", "bmp", "tif", "tiff", "raw", "dng",
+    ]
+    static let videoExtensions: Set<String> = [
+        "mp4", "mov", "m4v", "avi", "mts", "m2ts", "mpg", "mpeg", "wmv", "mkv",
+    ]
+    static let allowedExtensions = photoExtensions.union(videoExtensions)
+
+    static func kind(forNormalizedExtension fileExtension: String) -> MediaFileKind? {
+        if photoExtensions.contains(fileExtension) {
+            return .photo
+        }
+
+        if videoExtensions.contains(fileExtension) {
+            return .video
+        }
+
+        return nil
+    }
+}
+
 struct ExistingMediaNameIndex: Sendable {
     let photoNames: Set<String>
     let videoNames: Set<String>
@@ -25,11 +47,7 @@ struct ExistingMediaNameIndex: Sendable {
 }
 
 enum MediaFileCatalog {
-    static func buildExistingNameIndex(
-        at destinationRoot: URL,
-        photoExtensions: Set<String>,
-        videoExtensions: Set<String>
-    ) -> ExistingMediaNameIndex {
+    static func buildExistingNameIndex(at destinationRoot: URL) -> ExistingMediaNameIndex {
         let fileManager = FileManager.default
         let enumerator = fileManager.enumerator(
             at: destinationRoot,
@@ -53,10 +71,13 @@ enum MediaFileCatalog {
             let fileExtension = fileURL.pathExtension.lowercased()
             let normalizedName = fileURL.lastPathComponent.lowercased()
 
-            if photoExtensions.contains(fileExtension) {
+            switch MediaCatalogSupport.kind(forNormalizedExtension: fileExtension) {
+            case .photo:
                 photoNames.insert(normalizedName)
-            } else if videoExtensions.contains(fileExtension) {
+            case .video:
                 videoNames.insert(normalizedName)
+            case nil:
+                break
             }
         }
 
@@ -85,17 +106,6 @@ final class MediaImporter: ObservableObject {
     private var lastProgressUpdateDate: Date?
     private var lastSampledImportedBytes: Int64 = 0
     private var smoothedBytesPerSecond: Double?
-
-    private let photoExtensions: Set<String> = [
-        "jpg", "jpeg", "png", "heic", "gif", "bmp", "tif", "tiff", "raw", "dng",
-    ]
-    private let videoExtensions: Set<String> = [
-        "mp4", "mov", "m4v", "avi", "mts", "m2ts", "mpg", "mpeg", "wmv", "mkv",
-    ]
-    private let allowedExtensions: Set<String> = [
-        "jpg", "jpeg", "png", "heic", "gif", "bmp", "tif", "tiff", "raw", "dng",
-        "mp4", "mov", "m4v", "avi", "mts", "m2ts", "mpg", "mpeg", "wmv", "mkv",
-    ]
 
     init() {}
 
@@ -133,48 +143,14 @@ final class MediaImporter: ObservableObject {
 
     func importMedia(from volume: MountedVolume, to destinationFolder: URL, settings: AppSettings) async -> Bool {
         guard !isImporting else { return false }
-        statusResetTask?.cancel()
-        statusResetTask = nil
-        isImporting = true
-        currentImportVolumeID = volume.id
-        importProgress = 0
-        importedBytes = 0
-        totalImportBytes = 0
-        importedPhotoCount = 0
-        totalPhotoCount = 0
-        importedVideoCount = 0
-        totalVideoCount = 0
-        importStartDate = Date()
-        lastProgressRevision = 0
-        lastProgressUpdateDate = importStartDate
-        lastSampledImportedBytes = 0
-        smoothedBytesPerSecond = nil
+        startImportSession(for: volume)
         setPersistentStatusMessage("正在导入 \(volume.name)...")
 
         defer {
-            progressRefreshTask?.cancel()
-            progressRefreshTask = nil
-            isImporting = false
-            importProgress = nil
-            currentImportVolumeID = nil
-            importedBytes = 0
-            totalImportBytes = 0
-            importedPhotoCount = 0
-            totalPhotoCount = 0
-            importedVideoCount = 0
-            totalVideoCount = 0
-            importStartDate = nil
-            lastProgressRevision = 0
-            lastProgressUpdateDate = nil
-            lastSampledImportedBytes = 0
-            smoothedBytesPerSecond = nil
-            currentImportTask = nil
+            resetImportSession()
         }
 
         do {
-            let allowedExtensions = self.allowedExtensions
-            let photoExtensions = self.photoExtensions
-            let videoExtensions = self.videoExtensions
             let classificationConfiguration = settings.folderClassificationConfiguration
             let progressBuffer = ImportProgressBuffer()
             startProgressRefresh(using: progressBuffer, volumeName: volume.name)
@@ -183,9 +159,6 @@ final class MediaImporter: ObservableObject {
                     from: volume.url,
                     to: destinationFolder,
                     volumeName: volume.name,
-                    allowedExtensions: allowedExtensions,
-                    photoExtensions: photoExtensions,
-                    videoExtensions: videoExtensions,
                     classificationConfiguration: classificationConfiguration
                 ) { progress in
                     progressBuffer.store(progress)
@@ -266,12 +239,6 @@ final class MediaImporter: ObservableObject {
         return "\(Self.progressByteText(importedBytes)) / \(Self.progressByteText(totalImportBytes))"
     }
 
-    var importProgressCountText: String? {
-        guard totalPhotoCount > 0 || totalVideoCount > 0 else { return nil }
-
-        return "\(importedPhotoCount) / \(totalPhotoCount) 张照片, \(importedVideoCount) / \(totalVideoCount) 个视频"
-    }
-
     private func startProgressRefresh(using progressBuffer: ImportProgressBuffer, volumeName: String) {
         progressRefreshTask?.cancel()
         progressRefreshTask = Task { @MainActor [weak self] in
@@ -330,6 +297,45 @@ final class MediaImporter: ObservableObject {
         setPersistentStatusMessage("正在导入 \(volumeName)...")
     }
 
+    private func startImportSession(for volume: MountedVolume) {
+        statusResetTask?.cancel()
+        statusResetTask = nil
+        isImporting = true
+        currentImportVolumeID = volume.id
+        importProgress = 0
+        importedBytes = 0
+        totalImportBytes = 0
+        importedPhotoCount = 0
+        totalPhotoCount = 0
+        importedVideoCount = 0
+        totalVideoCount = 0
+        importStartDate = Date()
+        lastProgressRevision = 0
+        lastProgressUpdateDate = importStartDate
+        lastSampledImportedBytes = 0
+        smoothedBytesPerSecond = nil
+    }
+
+    private func resetImportSession() {
+        progressRefreshTask?.cancel()
+        progressRefreshTask = nil
+        isImporting = false
+        importProgress = nil
+        currentImportVolumeID = nil
+        importedBytes = 0
+        totalImportBytes = 0
+        importedPhotoCount = 0
+        totalPhotoCount = 0
+        importedVideoCount = 0
+        totalVideoCount = 0
+        importStartDate = nil
+        lastProgressRevision = 0
+        lastProgressUpdateDate = nil
+        lastSampledImportedBytes = 0
+        smoothedBytesPerSecond = nil
+        currentImportTask = nil
+    }
+
     private func setPersistentStatusMessage(_ message: String) {
         statusResetTask?.cancel()
         statusResetTask = nil
@@ -374,7 +380,7 @@ final class MediaImporter: ObservableObject {
         }
     }
 
-    static func isSameOrDescendant(_ candidate: URL, of ancestor: URL) -> Bool {
+    nonisolated static func isSameOrDescendant(_ candidate: URL, of ancestor: URL) -> Bool {
         let candidateComponents = candidate.standardizedFileURL.pathComponents
         let ancestorComponents = ancestor.standardizedFileURL.pathComponents
 
@@ -383,10 +389,6 @@ final class MediaImporter: ObservableObject {
         }
 
         return Array(candidateComponents.prefix(ancestorComponents.count)) == ancestorComponents
-    }
-
-    private static func byteText(_ bytes: Int64) -> String {
-        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
     private static func progressByteText(_ bytes: Int64) -> String {
@@ -449,9 +451,6 @@ private enum ImportWorker {
         from sourceRoot: URL,
         to destinationFolder: URL,
         volumeName: String,
-        allowedExtensions: Set<String>,
-        photoExtensions: Set<String>,
-        videoExtensions: Set<String>,
         classificationConfiguration: FolderClassificationConfiguration,
         onProgress: @escaping @Sendable (_ progress: MediaImporter.ImportProgressSnapshot) -> Void
     ) throws -> MediaImporter.ImportResult {
@@ -459,26 +458,19 @@ private enum ImportWorker {
         let standardizedSourceRoot = sourceRoot.standardizedFileURL
         let standardizedDestinationFolder = destinationFolder.standardizedFileURL
 
-        guard !isSameOrDescendant(standardizedDestinationFolder, of: standardizedSourceRoot) else {
+        guard !MediaImporter.isSameOrDescendant(standardizedDestinationFolder, of: standardizedSourceRoot) else {
             throw MediaImporter.ImportError.destinationInsideSourceVolume
         }
 
-        let mediaFiles = try collectMediaFiles(
-            from: sourceRoot,
-            allowedExtensions: allowedExtensions,
-            photoExtensions: photoExtensions,
-            videoExtensions: videoExtensions
-        )
+        let mediaFiles = try collectMediaFiles(from: sourceRoot)
 
-        let existingNameIndex = MediaFileCatalog.buildExistingNameIndex(
-            at: standardizedDestinationFolder,
-            photoExtensions: photoExtensions,
-            videoExtensions: videoExtensions
-        )
+        let existingNameIndex = MediaFileCatalog.buildExistingNameIndex(at: standardizedDestinationFolder)
 
         var pendingMediaFiles: [ImportableFile] = []
         var skippedExistingPhotoCount = 0
         var skippedExistingVideoCount = 0
+        var totalPhotoCount = 0
+        var totalVideoCount = 0
 
         for file in mediaFiles {
             if existingNameIndex.contains(file.url.lastPathComponent, kind: file.kind.mediaFileKind) {
@@ -490,6 +482,12 @@ private enum ImportWorker {
                 }
             } else {
                 pendingMediaFiles.append(file)
+                switch file.kind {
+                case .photo:
+                    totalPhotoCount += 1
+                case .video:
+                    totalVideoCount += 1
+                }
             }
         }
 
@@ -502,8 +500,8 @@ private enum ImportWorker {
         let totalBytes = pendingMediaFiles.reduce(into: Int64(0)) { partialResult, file in
             partialResult += file.size
         }
-        let totalPhotoCount = pendingMediaFiles.filter { $0.kind == .photo }.count
-        let totalVideoCount = pendingMediaFiles.filter { $0.kind == .video }.count
+        let pendingPhotoCount = totalPhotoCount
+        let pendingVideoCount = totalVideoCount
         var importedBytes: Int64 = 0
         var copiedCount = 0
         var importedPhotoCount = 0
@@ -514,9 +512,9 @@ private enum ImportWorker {
                 importedBytes: importedBytes,
                 totalBytes: totalBytes,
                 importedPhotoCount: importedPhotoCount,
-                totalPhotoCount: totalPhotoCount,
+                totalPhotoCount: pendingPhotoCount,
                 importedVideoCount: importedVideoCount,
-                totalVideoCount: totalVideoCount
+                totalVideoCount: pendingVideoCount
             )
         )
 
@@ -555,9 +553,9 @@ private enum ImportWorker {
                         importedBytes: baseImportedBytes + copiedBytesForFile,
                         totalBytes: totalBytes,
                         importedPhotoCount: currentImportedPhotoCount,
-                        totalPhotoCount: totalPhotoCount,
+                        totalPhotoCount: pendingPhotoCount,
                         importedVideoCount: currentImportedVideoCount,
-                        totalVideoCount: totalVideoCount
+                        totalVideoCount: pendingVideoCount
                     )
                 )
             }
@@ -585,9 +583,9 @@ private enum ImportWorker {
                     importedBytes: importedBytes,
                     totalBytes: totalBytes,
                     importedPhotoCount: importedPhotoCount,
-                    totalPhotoCount: totalPhotoCount,
+                    totalPhotoCount: pendingPhotoCount,
                     importedVideoCount: importedVideoCount,
-                    totalVideoCount: totalVideoCount
+                    totalVideoCount: pendingVideoCount
                 )
             )
         }
@@ -601,10 +599,7 @@ private enum ImportWorker {
     }
 
     private static func collectMediaFiles(
-        from sourceRoot: URL,
-        allowedExtensions: Set<String>,
-        photoExtensions: Set<String>,
-        videoExtensions: Set<String>
+        from sourceRoot: URL
     ) throws -> [ImportableFile] {
         let fileManager = FileManager.default
         let enumerator = fileManager.enumerator(
@@ -623,25 +618,19 @@ private enum ImportWorker {
             }
 
             let fileExtension = fileURL.pathExtension.lowercased()
-            if allowedExtensions.contains(fileExtension) {
-                let kind: ImportableFile.Kind
-                if photoExtensions.contains(fileExtension) {
-                    kind = .photo
-                } else if videoExtensions.contains(fileExtension) {
-                    kind = .video
-                } else {
-                    continue
-                }
-
-                mediaFiles.append(
-                    ImportableFile(
-                        url: fileURL,
-                        size: Int64(values.fileSize ?? 0),
-                        kind: kind,
-                        sourceFolderName: fileURL.deletingLastPathComponent().lastPathComponent
-                    )
-                )
+            guard MediaCatalogSupport.allowedExtensions.contains(fileExtension),
+                  let mediaKind = MediaCatalogSupport.kind(forNormalizedExtension: fileExtension) else {
+                continue
             }
+
+            mediaFiles.append(
+                ImportableFile(
+                    url: fileURL,
+                    size: Int64(values.fileSize ?? 0),
+                    kind: .init(mediaFileKind: mediaKind),
+                    sourceFolderName: fileURL.deletingLastPathComponent().lastPathComponent
+                )
+            )
         }
 
         return mediaFiles
@@ -740,17 +729,6 @@ private enum ImportWorker {
         try outputHandle.close()
     }
 
-    private static func isSameOrDescendant(_ candidate: URL, of ancestor: URL) -> Bool {
-        let candidateComponents = candidate.standardizedFileURL.pathComponents
-        let ancestorComponents = ancestor.standardizedFileURL.pathComponents
-
-        guard candidateComponents.count >= ancestorComponents.count else {
-            return false
-        }
-
-        return Array(candidateComponents.prefix(ancestorComponents.count)) == ancestorComponents
-    }
-
     private static func makeImportFolderName() -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -762,6 +740,15 @@ private enum ImportWorker {
         enum Kind: Sendable {
             case photo
             case video
+
+            init(mediaFileKind: MediaFileKind) {
+                switch mediaFileKind {
+                case .photo:
+                    self = .photo
+                case .video:
+                    self = .video
+                }
+            }
 
             var mediaFileKind: MediaFileKind {
                 switch self {
