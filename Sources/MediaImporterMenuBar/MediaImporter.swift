@@ -16,6 +16,7 @@ final class MediaImporter: ObservableObject {
 
     private var currentImportTask: Task<ImportResult, Error>?
     private var progressRefreshTask: Task<Void, Never>?
+    private var statusResetTask: Task<Void, Never>?
     private var importStartDate: Date?
     private var lastProgressRevision: UInt64 = 0
     private var lastProgressUpdateDate: Date?
@@ -67,8 +68,10 @@ final class MediaImporter: ObservableObject {
     }
 #endif
 
-    func importMedia(from volume: MountedVolume, to destinationFolder: URL) async -> Bool {
+    func importMedia(from volume: MountedVolume, to destinationFolder: URL, settings: AppSettings) async -> Bool {
         guard !isImporting else { return false }
+        statusResetTask?.cancel()
+        statusResetTask = nil
         isImporting = true
         currentImportVolumeID = volume.id
         importProgress = 0
@@ -83,7 +86,7 @@ final class MediaImporter: ObservableObject {
         lastProgressUpdateDate = importStartDate
         lastSampledImportedBytes = 0
         smoothedBytesPerSecond = nil
-        lastResultMessage = "正在导入 \(volume.name)..."
+        setPersistentStatusMessage("正在导入 \(volume.name)...")
 
         defer {
             progressRefreshTask?.cancel()
@@ -109,6 +112,7 @@ final class MediaImporter: ObservableObject {
             let allowedExtensions = self.allowedExtensions
             let photoExtensions = self.photoExtensions
             let videoExtensions = self.videoExtensions
+            let classificationConfiguration = settings.folderClassificationConfiguration
             let progressBuffer = ImportProgressBuffer()
             startProgressRefresh(using: progressBuffer, volumeName: volume.name)
             let task = Task.detached(priority: .userInitiated) { [volume, destinationFolder] in
@@ -118,7 +122,8 @@ final class MediaImporter: ObservableObject {
                     volumeName: volume.name,
                     allowedExtensions: allowedExtensions,
                     photoExtensions: photoExtensions,
-                    videoExtensions: videoExtensions
+                    videoExtensions: videoExtensions,
+                    classificationConfiguration: classificationConfiguration
                 ) { progress in
                     progressBuffer.store(progress)
                 }
@@ -128,29 +133,35 @@ final class MediaImporter: ObservableObject {
             applyBufferedProgress(from: progressBuffer, volumeName: volume.name, force: true)
             progressRefreshTask?.cancel()
             progressRefreshTask = nil
+            settings.appendClassificationLogs(result.classificationLogs)
 
             if result.copiedCount == 0 {
-                lastResultMessage = "\(volume.name) 中没有找到可导入的媒体文件"
+                setStatusMessage("\(volume.name) 中没有找到可导入的媒体文件", autoDismissAfter: 3.6)
             } else {
-                lastResultMessage = "已导入 \(result.copiedCount) 个文件到 \(result.destinationFolderName)"
+                setStatusMessage("已导入 \(result.copiedCount) 个文件到 \(result.destinationFolderName)", autoDismissAfter: 3.6)
             }
             return true
         } catch is CancellationError {
-            lastResultMessage = "已取消导入"
+            setStatusMessage("已取消导入", autoDismissAfter: 2.8)
             return false
         } catch {
-            lastResultMessage = "导入失败：\(error.localizedDescription)"
+            setStatusMessage("导入失败：\(error.localizedDescription)", autoDismissAfter: 4.2)
             return false
         }
     }
 
     func cancelImport() {
         currentImportTask?.cancel()
-        lastResultMessage = "正在取消导入..."
+        setPersistentStatusMessage("正在取消导入...")
     }
 
     func setStatusMessage(_ message: String) {
+        setStatusMessage(message, autoDismissAfter: 3.2)
+    }
+
+    func setStatusMessage(_ message: String, autoDismissAfter delay: TimeInterval) {
         lastResultMessage = message
+        scheduleStatusReset(after: delay, expectedMessage: message)
     }
 
     var importRemainingTimeText: String? {
@@ -239,12 +250,30 @@ final class MediaImporter: ObservableObject {
         importedVideoCount = snapshot.importedVideoCount
         totalVideoCount = snapshot.totalVideoCount
         importProgress = snapshot.totalBytes > 0 ? Double(snapshot.importedBytes) / Double(snapshot.totalBytes) : nil
-        lastResultMessage = "正在导入 \(volumeName)..."
+        setPersistentStatusMessage("正在导入 \(volumeName)...")
+    }
+
+    private func setPersistentStatusMessage(_ message: String) {
+        statusResetTask?.cancel()
+        statusResetTask = nil
+        lastResultMessage = message
+    }
+
+    private func scheduleStatusReset(after delay: TimeInterval, expectedMessage: String) {
+        statusResetTask?.cancel()
+        statusResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            guard !self.isImporting, self.lastResultMessage == expectedMessage else { return }
+            self.lastResultMessage = "等待导入"
+            self.statusResetTask = nil
+        }
     }
 
     struct ImportResult: Sendable {
         let copiedCount: Int
         let destinationFolderName: String
+        let classificationLogs: [FolderClassificationLogEntry]
     }
 
     struct ImportProgressSnapshot: Sendable {
@@ -345,6 +374,7 @@ private enum ImportWorker {
         allowedExtensions: Set<String>,
         photoExtensions: Set<String>,
         videoExtensions: Set<String>,
+        classificationConfiguration: FolderClassificationConfiguration,
         onProgress: @escaping @Sendable (_ progress: MediaImporter.ImportProgressSnapshot) -> Void
     ) throws -> MediaImporter.ImportResult {
         let fileManager = FileManager.default
@@ -378,6 +408,7 @@ private enum ImportWorker {
         var copiedCount = 0
         var importedPhotoCount = 0
         var importedVideoCount = 0
+        var classificationLogs: [FolderClassificationLogEntry] = []
         onProgress(
             MediaImporter.ImportProgressSnapshot(
                 importedBytes: importedBytes,
@@ -391,7 +422,19 @@ private enum ImportWorker {
 
         for file in mediaFiles {
             try Task.checkCancellation()
-            let uniqueTarget = uniqueDestinationURL(for: file.url.lastPathComponent, in: finalFolder)
+            let matchedRule = file.kind == .video
+                ? classificationConfiguration.matchingRule(for: file.sourceFolderName)
+                : nil
+            let targetFolder = matchedRule.map {
+                standardizedDestinationFolder.appendingPathComponent($0.normalizedTargetFolderPath, isDirectory: true)
+            } ?? finalFolder
+            try fileManager.createDirectory(at: targetFolder, withIntermediateDirectories: true)
+            let uniqueTarget = try resolvedDestinationURL(
+                for: file.url.lastPathComponent,
+                in: targetFolder,
+                strategy: classificationConfiguration.conflictStrategy,
+                fileManager: fileManager
+            )
             let baseImportedBytes = importedBytes
             let currentImportedPhotoCount = importedPhotoCount
             let currentImportedVideoCount = importedVideoCount
@@ -415,6 +458,17 @@ private enum ImportWorker {
             case .video:
                 importedVideoCount += 1
             }
+            classificationLogs.append(
+                FolderClassificationLogEntry(
+                    fileName: file.url.lastPathComponent,
+                    sourceFolderName: file.sourceFolderName,
+                    destinationSubpath: relativeDisplayPath(for: uniqueTarget, root: standardizedDestinationFolder),
+                    ruleKeyword: matchedRule?.keyword,
+                    ruleTargetFolderName: matchedRule?.normalizedTargetFolderPath,
+                    didMatchRule: matchedRule != nil,
+                    conflictStrategy: classificationConfiguration.conflictStrategy
+                )
+            )
             onProgress(
                 MediaImporter.ImportProgressSnapshot(
                     importedBytes: importedBytes,
@@ -429,7 +483,8 @@ private enum ImportWorker {
 
         return MediaImporter.ImportResult(
             copiedCount: copiedCount,
-            destinationFolderName: finalFolder.lastPathComponent
+            destinationFolderName: finalFolder.lastPathComponent,
+            classificationLogs: classificationLogs
         )
     }
 
@@ -470,7 +525,8 @@ private enum ImportWorker {
                     ImportableFile(
                         url: fileURL,
                         size: Int64(values.fileSize ?? 0),
-                        kind: kind
+                        kind: kind,
+                        sourceFolderName: fileURL.deletingLastPathComponent().lastPathComponent
                     )
                 )
             }
@@ -479,8 +535,26 @@ private enum ImportWorker {
         return mediaFiles
     }
 
-    private static func uniqueDestinationURL(for filename: String, in folder: URL) -> URL {
-        let fileManager = FileManager.default
+    private static func resolvedDestinationURL(
+        for filename: String,
+        in folder: URL,
+        strategy: FolderConflictStrategy,
+        fileManager: FileManager
+    ) throws -> URL {
+        let original = folder.appendingPathComponent(filename)
+
+        switch strategy {
+        case .rename:
+            return uniqueDestinationURL(for: filename, in: folder, fileManager: fileManager)
+        case .replace:
+            if fileManager.fileExists(atPath: original.path) {
+                try fileManager.removeItem(at: original)
+            }
+            return original
+        }
+    }
+
+    private static func uniqueDestinationURL(for filename: String, in folder: URL, fileManager: FileManager) -> URL {
         let original = folder.appendingPathComponent(filename)
 
         guard !fileManager.fileExists(atPath: original.path) else {
@@ -505,6 +579,13 @@ private enum ImportWorker {
         }
 
         return original
+    }
+
+    private static func relativeDisplayPath(for fileURL: URL, root: URL) -> String {
+        let fileComponents = fileURL.standardizedFileURL.pathComponents
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let relativeComponents = Array(fileComponents.dropFirst(rootComponents.count))
+        return relativeComponents.joined(separator: "/")
     }
 
     private static func copyFileInChunks(
@@ -574,5 +655,6 @@ private enum ImportWorker {
         let url: URL
         let size: Int64
         let kind: Kind
+        let sourceFolderName: String
     }
 }

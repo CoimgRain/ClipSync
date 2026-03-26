@@ -44,7 +44,7 @@ final class AutoImportCoordinator: ObservableObject {
 
                 do {
                     let didSucceed = try await settings.withDestinationFolderAccess { destinationFolderURL in
-                        await importer.importMedia(from: nextVolume, to: destinationFolderURL)
+                        await importer.importMedia(from: nextVolume, to: destinationFolderURL, settings: settings)
                     }
 
                     if didSucceed {

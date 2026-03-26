@@ -77,8 +77,9 @@ final class DiskMonitor: ObservableObject {
     }
 
 #if DEBUG
-    init(previewVolumes: [MountedVolume]) {
+    init(previewVolumes: [MountedVolume], previewMediaSummaries: [String: VolumeMediaSummary] = [:]) {
         removableVolumes = previewVolumes
+        mediaSummaries = previewMediaSummaries
     }
 #endif
 
@@ -86,6 +87,7 @@ final class DiskMonitor: ObservableObject {
         let keys: Set<URLResourceKey> = [
             .volumeNameKey,
             .volumeLocalizedFormatDescriptionKey,
+            .volumeIsLocalKey,
             .volumeIsEjectableKey,
             .volumeIsRemovableKey,
             .volumeIsInternalKey,
@@ -134,6 +136,7 @@ final class DiskMonitor: ObservableObject {
         guard let values = try? url.resourceValues(forKeys: [
             .volumeNameKey,
             .volumeLocalizedFormatDescriptionKey,
+            .volumeIsLocalKey,
             .volumeIsEjectableKey,
             .volumeIsRemovableKey,
             .volumeIsInternalKey,
@@ -145,8 +148,9 @@ final class DiskMonitor: ObservableObject {
             return nil
         }
 
-        let isExternal = (values.volumeIsRemovable == true || values.volumeIsEjectable == true)
+        let isExternal = values.volumeIsLocal != false
             && values.volumeIsInternal != true
+            && url.path.hasPrefix("/Volumes/")
 
         guard isExternal else { return nil }
 

@@ -1,6 +1,128 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
+
+enum FolderConflictStrategy: String, CaseIterable, Codable, Identifiable, Sendable {
+    case rename
+    case replace
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .rename:
+            return "重命名"
+        case .replace:
+            return "覆盖"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .rename:
+            return "遇到同名文件时自动保留两份"
+        case .replace:
+            return "遇到同名文件时用新文件替换旧文件"
+        }
+    }
+}
+
+struct FolderClassificationRule: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID
+    var keyword: String
+    var targetFolderName: String
+    var isEnabled: Bool
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        keyword: String = "",
+        targetFolderName: String = "",
+        isEnabled: Bool = true,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.keyword = keyword
+        self.targetFolderName = targetFolderName
+        self.isEnabled = isEnabled
+        self.createdAt = createdAt
+    }
+
+    var normalizedKeyword: String {
+        keyword
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    var normalizedTargetFolderPath: String {
+        targetFolderName
+            .split(whereSeparator: { $0 == "/" || $0 == "\\" })
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "." && $0 != ".." }
+            .joined(separator: "/")
+    }
+
+    var isConfigured: Bool {
+        !normalizedKeyword.isEmpty && !normalizedTargetFolderPath.isEmpty
+    }
+}
+
+struct FolderClassificationConfiguration: Sendable {
+    let isEnabled: Bool
+    let rules: [FolderClassificationRule]
+    let conflictStrategy: FolderConflictStrategy
+
+    func matchingRule(for folderName: String) -> FolderClassificationRule? {
+        guard isEnabled else { return nil }
+        let normalizedFolderName = folderName.lowercased()
+        return rules.first(where: {
+            $0.isEnabled
+                && $0.isConfigured
+                && normalizedFolderName.contains($0.normalizedKeyword)
+        })
+    }
+}
+
+struct FolderClassificationLogEntry: Identifiable, Codable, Equatable, Sendable {
+    let id: UUID
+    let timestamp: Date
+    let fileName: String
+    let sourceFolderName: String
+    let destinationSubpath: String
+    let ruleKeyword: String?
+    let ruleTargetFolderName: String?
+    let didMatchRule: Bool
+    let conflictStrategy: FolderConflictStrategy
+
+    init(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        fileName: String,
+        sourceFolderName: String,
+        destinationSubpath: String,
+        ruleKeyword: String?,
+        ruleTargetFolderName: String?,
+        didMatchRule: Bool,
+        conflictStrategy: FolderConflictStrategy
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.fileName = fileName
+        self.sourceFolderName = sourceFolderName
+        self.destinationSubpath = destinationSubpath
+        self.ruleKeyword = ruleKeyword
+        self.ruleTargetFolderName = ruleTargetFolderName
+        self.didMatchRule = didMatchRule
+        self.conflictStrategy = conflictStrategy
+    }
+}
+
+private struct FolderClassificationExportPayload: Codable {
+    let isEnabled: Bool
+    let conflictStrategy: FolderConflictStrategy
+    let rules: [FolderClassificationRule]
+}
 
 @MainActor
 final class AppSettings: ObservableObject {
@@ -17,25 +139,81 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var folderClassificationEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(folderClassificationEnabled, forKey: Self.folderClassificationEnabledKey)
+        }
+    }
+
+    @Published var folderConflictStrategy: FolderConflictStrategy {
+        didSet {
+            UserDefaults.standard.set(folderConflictStrategy.rawValue, forKey: Self.folderConflictStrategyKey)
+        }
+    }
+
+    @Published var folderClassificationRules: [FolderClassificationRule] {
+        didSet {
+            persistFolderClassificationRules()
+        }
+    }
+
+    @Published private(set) var classificationLogs: [FolderClassificationLogEntry] {
+        didSet {
+            persistClassificationLogs()
+        }
+    }
+
     private static let destinationFolderKey = "destinationFolderPath"
     private static let destinationFolderBookmarkKey = "destinationFolderBookmark"
     private static let autoImportKey = "autoImportEnabled"
+    private static let folderClassificationEnabledKey = "folderClassificationEnabled"
+    private static let folderConflictStrategyKey = "folderConflictStrategy"
+    private static let folderClassificationRulesKey = "folderClassificationRules"
+    private static let classificationLogsKey = "classificationLogs"
+    private static let maxClassificationLogs = 300
 
     init() {
         self.destinationFolderPath = ""
         self.autoImportEnabled = UserDefaults.standard.bool(forKey: Self.autoImportKey)
+        self.folderClassificationEnabled = UserDefaults.standard.object(forKey: Self.folderClassificationEnabledKey) as? Bool ?? false
+        self.folderConflictStrategy = FolderConflictStrategy(rawValue: UserDefaults.standard.string(forKey: Self.folderConflictStrategyKey) ?? "") ?? .rename
+        self.folderClassificationRules = Self.decode([FolderClassificationRule].self, from: Self.folderClassificationRulesKey) ?? []
+        self.classificationLogs = Self.decode([FolderClassificationLogEntry].self, from: Self.classificationLogsKey) ?? []
         restoreDestinationFolder()
     }
 
 #if DEBUG
-    init(previewDestinationFolderPath: String, autoImportEnabled: Bool) {
+    init(
+        previewDestinationFolderPath: String,
+        autoImportEnabled: Bool,
+        previewFolderClassificationEnabled: Bool = false,
+        previewFolderConflictStrategy: FolderConflictStrategy = .rename,
+        previewFolderClassificationRules: [FolderClassificationRule] = [],
+        previewClassificationLogs: [FolderClassificationLogEntry] = []
+    ) {
         self.destinationFolderPath = previewDestinationFolderPath
         self.autoImportEnabled = autoImportEnabled
+        self.folderClassificationEnabled = previewFolderClassificationEnabled
+        self.folderConflictStrategy = previewFolderConflictStrategy
+        self.folderClassificationRules = previewFolderClassificationRules
+        self.classificationLogs = previewClassificationLogs
     }
 #endif
 
     var destinationFolderURL: URL? {
         resolvedDestinationFolderURL()
+    }
+
+    var folderClassificationConfiguration: FolderClassificationConfiguration {
+        FolderClassificationConfiguration(
+            isEnabled: folderClassificationEnabled,
+            rules: folderClassificationRules,
+            conflictStrategy: folderConflictStrategy
+        )
+    }
+
+    var enabledRuleCount: Int {
+        folderClassificationRules.filter { $0.isEnabled && $0.isConfigured }.count
     }
 
     func chooseDestinationFolder() {
@@ -54,6 +232,10 @@ final class AppSettings: ObservableObject {
         saveDestinationFolder(selectedURL)
     }
 
+    func chooseDestinationFolderForClassification() {
+        chooseDestinationFolder()
+    }
+
     func withDestinationFolderAccess<T>(
         _ body: (URL) async throws -> T
     ) async throws -> T {
@@ -67,6 +249,111 @@ final class AppSettings: ObservableObject {
         }
 
         return try await body(access.url)
+    }
+
+    func addFolderClassificationRule() {
+        folderClassificationRules.append(FolderClassificationRule())
+    }
+
+    func removeFolderClassificationRule(id: UUID) {
+        folderClassificationRules.removeAll { $0.id == id }
+    }
+
+    func moveFolderClassificationRule(id: UUID, offset: Int) {
+        guard let currentIndex = folderClassificationRules.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+
+        let nextIndex = currentIndex + offset
+        guard folderClassificationRules.indices.contains(nextIndex) else {
+            return
+        }
+
+        let rule = folderClassificationRules.remove(at: currentIndex)
+        folderClassificationRules.insert(rule, at: nextIndex)
+    }
+
+    func testRuleMatch(for folderName: String) -> FolderClassificationRule? {
+        folderClassificationConfiguration.matchingRule(for: folderName)
+    }
+
+    @discardableResult
+    func exportFolderClassificationRules() throws -> URL? {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "folder-classification-rules.json"
+        panel.title = "导出文件夹分类规则"
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return nil
+        }
+
+        let payload = FolderClassificationExportPayload(
+            isEnabled: folderClassificationEnabled,
+            conflictStrategy: folderConflictStrategy,
+            rules: folderClassificationRules
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(payload)
+        try data.write(to: url, options: .atomic)
+        return url
+    }
+
+    @discardableResult
+    func importFolderClassificationRules() throws -> Int? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.json]
+        panel.title = "导入文件夹分类规则"
+
+        guard panel.runModal() == .OK, let url = panel.url else {
+            return nil
+        }
+
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        let payload = try decoder.decode(FolderClassificationExportPayload.self, from: data)
+        folderClassificationEnabled = payload.isEnabled
+        folderConflictStrategy = payload.conflictStrategy
+        folderClassificationRules = payload.rules
+        return payload.rules.count
+    }
+
+    func createClassificationFolders() async throws -> Int {
+        let configuredTargetFolders = Array(
+            Set(
+                folderClassificationRules
+                    .filter { $0.isEnabled && $0.isConfigured }
+                    .map(\.normalizedTargetFolderPath)
+            )
+        )
+        .sorted()
+
+        guard !configuredTargetFolders.isEmpty else {
+            return 0
+        }
+
+        return try await withDestinationFolderAccess { destinationRoot in
+            let fileManager = FileManager.default
+            for relativePath in configuredTargetFolders {
+                let targetURL = destinationRoot.appendingPathComponent(relativePath, isDirectory: true)
+                try fileManager.createDirectory(at: targetURL, withIntermediateDirectories: true)
+            }
+            return configuredTargetFolders.count
+        }
+    }
+
+    func appendClassificationLogs(_ entries: [FolderClassificationLogEntry]) {
+        guard !entries.isEmpty else { return }
+        classificationLogs = Array((entries + classificationLogs).prefix(Self.maxClassificationLogs))
+    }
+
+    func clearClassificationLogs() {
+        classificationLogs = []
     }
 
     private func restoreDestinationFolder() {
@@ -132,6 +419,32 @@ final class AppSettings: ObservableObject {
 
         guard !destinationFolderPath.isEmpty else { return nil }
         return URL(fileURLWithPath: destinationFolderPath, isDirectory: true)
+    }
+
+    private func persistFolderClassificationRules() {
+        do {
+            let data = try JSONEncoder().encode(folderClassificationRules)
+            UserDefaults.standard.set(data, forKey: Self.folderClassificationRulesKey)
+        } catch {
+            UserDefaults.standard.removeObject(forKey: Self.folderClassificationRulesKey)
+        }
+    }
+
+    private func persistClassificationLogs() {
+        do {
+            let data = try JSONEncoder().encode(classificationLogs)
+            UserDefaults.standard.set(data, forKey: Self.classificationLogsKey)
+        } catch {
+            UserDefaults.standard.removeObject(forKey: Self.classificationLogsKey)
+        }
+    }
+
+    private static func decode<T: Decodable>(_ type: T.Type, from key: String) -> T? {
+        guard let data = UserDefaults.standard.data(forKey: key) else {
+            return nil
+        }
+
+        return try? JSONDecoder().decode(type, from: data)
     }
 
     private struct DestinationFolderAccess {
