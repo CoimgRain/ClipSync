@@ -9,18 +9,20 @@
 /* Begin PBXBuildFile section */
 		124217B6B05D1E2466FAC6DF /* MediaImporterMenuBarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */; };
 		22BB427C18ECBD89FDC7868F /* AutoImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE683024F5A750C3B50711F6 /* AutoImportCoordinator.swift */; };
-		606F7D8FFFCE7AF6B2DB2901 /* MenuBarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */; };
-		70C789396A417843F5DEE15A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99957929BDFBD43FBA3A9D1F /* Cocoa.framework */; };
-		B0CADF01F1FCD0BE98FBC6AD /* DiskMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CA0D56684539B94E4503FF /* DiskMonitor.swift */; };
-		BCC2166441C9CB0CCB334C24 /* MediaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F406C51EB5AE1BBC75189 /* MediaImporter.swift */; };
-		D2873C6BCFAE66B2A65FBCC5 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C5715B37BF94B7F94F31CF /* AppSettings.swift */; };
+			606F7D8FFFCE7AF6B2DB2901 /* MenuBarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */; };
+			70C789396A417843F5DEE15A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99957929BDFBD43FBA3A9D1F /* Cocoa.framework */; };
+			895BFF30E6634C4BB3048B35 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7C0B8F6AA8468BABDC7C32 /* StatusBarController.swift */; };
+			B0CADF01F1FCD0BE98FBC6AD /* DiskMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74CA0D56684539B94E4503FF /* DiskMonitor.swift */; };
+			BCC2166441C9CB0CCB334C24 /* MediaImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F23F406C51EB5AE1BBC75189 /* MediaImporter.swift */; };
+			D2873C6BCFAE66B2A65FBCC5 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C5715B37BF94B7F94F31CF /* AppSettings.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MenuBarViews.swift; path = MediaImporterMenuBar/MenuBarViews.swift; sourceTree = "<group>"; };
-		31FEF25D46BAC64648F15A74 /* MediaImporterMenuBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaImporterMenuBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		364BEF31982B41F0AC2083E1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		74CA0D56684539B94E4503FF /* DiskMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiskMonitor.swift; path = MediaImporterMenuBar/DiskMonitor.swift; sourceTree = "<group>"; };
+			20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MenuBarViews.swift; path = MediaImporterMenuBar/MenuBarViews.swift; sourceTree = "<group>"; };
+			31FEF25D46BAC64648F15A74 /* MediaImporterMenuBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaImporterMenuBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+			3B7C0B8F6AA8468BABDC7C32 /* StatusBarController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = StatusBarController.swift; path = MediaImporterMenuBar/StatusBarController.swift; sourceTree = "<group>"; };
+			364BEF31982B41F0AC2083E1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+			74CA0D56684539B94E4503FF /* DiskMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiskMonitor.swift; path = MediaImporterMenuBar/DiskMonitor.swift; sourceTree = "<group>"; };
 		99957929BDFBD43FBA3A9D1F /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
 		A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MediaImporterMenuBarApp.swift; path = MediaImporterMenuBar/MediaImporterMenuBarApp.swift; sourceTree = "<group>"; };
 		B9C5715B37BF94B7F94F31CF /* AppSettings.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = AppSettings.swift; path = MediaImporterMenuBar/AppSettings.swift; sourceTree = "<group>"; };
@@ -72,11 +74,12 @@
 			children = (
 				B9C5715B37BF94B7F94F31CF /* AppSettings.swift */,
 				FE683024F5A750C3B50711F6 /* AutoImportCoordinator.swift */,
-				74CA0D56684539B94E4503FF /* DiskMonitor.swift */,
-				F23F406C51EB5AE1BBC75189 /* MediaImporter.swift */,
-				A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */,
-				20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */,
-			);
+					74CA0D56684539B94E4503FF /* DiskMonitor.swift */,
+					F23F406C51EB5AE1BBC75189 /* MediaImporter.swift */,
+					A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */,
+					20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */,
+					3B7C0B8F6AA8468BABDC7C32 /* StatusBarController.swift */,
+				);
 			name = Sources;
 			path = Sources;
 			sourceTree = "<group>";
@@ -163,11 +166,12 @@
 			files = (
 				D2873C6BCFAE66B2A65FBCC5 /* AppSettings.swift in Sources */,
 				22BB427C18ECBD89FDC7868F /* AutoImportCoordinator.swift in Sources */,
-				B0CADF01F1FCD0BE98FBC6AD /* DiskMonitor.swift in Sources */,
-				BCC2166441C9CB0CCB334C24 /* MediaImporter.swift in Sources */,
-				124217B6B05D1E2466FAC6DF /* MediaImporterMenuBarApp.swift in Sources */,
-				606F7D8FFFCE7AF6B2DB2901 /* MenuBarViews.swift in Sources */,
-			);
+					B0CADF01F1FCD0BE98FBC6AD /* DiskMonitor.swift in Sources */,
+					BCC2166441C9CB0CCB334C24 /* MediaImporter.swift in Sources */,
+					124217B6B05D1E2466FAC6DF /* MediaImporterMenuBarApp.swift in Sources */,
+					606F7D8FFFCE7AF6B2DB2901 /* MenuBarViews.swift in Sources */,
+					895BFF30E6634C4BB3048B35 /* StatusBarController.swift in Sources */,
+				);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */

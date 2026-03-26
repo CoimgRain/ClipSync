@@ -4,45 +4,33 @@ import SwiftUI
 @main
 struct MediaImporterMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var diskMonitor: DiskMonitor
-    @StateObject private var settings: AppSettings
-    @StateObject private var importer: MediaImporter
-    @StateObject private var autoImportCoordinator: AutoImportCoordinator
-
-    init() {
-        let diskMonitor = DiskMonitor()
-        let settings = AppSettings()
-        let importer = MediaImporter()
-
-        _diskMonitor = StateObject(wrappedValue: diskMonitor)
-        _settings = StateObject(wrappedValue: settings)
-        _importer = StateObject(wrappedValue: importer)
-        _autoImportCoordinator = StateObject(
-            wrappedValue: AutoImportCoordinator(
-                diskMonitor: diskMonitor,
-                settings: settings,
-                importer: importer
-            )
-        )
-    }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContentView()
-                .environmentObject(diskMonitor)
-                .environmentObject(settings)
-                .environmentObject(importer)
-                .frame(width: 360)
-        } label: {
-            MenuBarLabelView()
-                .environmentObject(diskMonitor)
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let diskMonitor = DiskMonitor()
+    private let settings = AppSettings()
+    private let importer = MediaImporter()
+    private lazy var autoImportCoordinator = AutoImportCoordinator(
+        diskMonitor: diskMonitor,
+        settings: settings,
+        importer: importer
+    )
+    private lazy var statusBarController = StatusBarController(
+        diskMonitor: diskMonitor,
+        settings: settings,
+        importer: importer
+    )
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        _ = autoImportCoordinator
+        statusBarController.install()
     }
 }

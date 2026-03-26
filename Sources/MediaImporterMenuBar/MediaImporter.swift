@@ -1,6 +1,69 @@
 import Combine
 import Foundation
 
+enum MediaFileKind: Sendable {
+    case photo
+    case video
+}
+
+struct ExistingMediaNameIndex: Sendable {
+    let photoNames: Set<String>
+    let videoNames: Set<String>
+
+    static let empty = ExistingMediaNameIndex(photoNames: [], videoNames: [])
+
+    func contains(_ filename: String, kind: MediaFileKind) -> Bool {
+        let normalizedName = filename.lowercased()
+
+        switch kind {
+        case .photo:
+            return photoNames.contains(normalizedName)
+        case .video:
+            return videoNames.contains(normalizedName)
+        }
+    }
+}
+
+enum MediaFileCatalog {
+    static func buildExistingNameIndex(
+        at destinationRoot: URL,
+        photoExtensions: Set<String>,
+        videoExtensions: Set<String>
+    ) -> ExistingMediaNameIndex {
+        let fileManager = FileManager.default
+        let enumerator = fileManager.enumerator(
+            at: destinationRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+        )
+
+        var photoNames: Set<String> = []
+        var videoNames: Set<String> = []
+
+        while let fileURL = enumerator?.nextObject() as? URL {
+            if Task.isCancelled {
+                break
+            }
+
+            guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory != true else {
+                continue
+            }
+
+            let fileExtension = fileURL.pathExtension.lowercased()
+            let normalizedName = fileURL.lastPathComponent.lowercased()
+
+            if photoExtensions.contains(fileExtension) {
+                photoNames.insert(normalizedName)
+            } else if videoExtensions.contains(fileExtension) {
+                videoNames.insert(normalizedName)
+            }
+        }
+
+        return ExistingMediaNameIndex(photoNames: photoNames, videoNames: videoNames)
+    }
+}
+
 @MainActor
 final class MediaImporter: ObservableObject {
     @Published private(set) var isImporting = false
@@ -136,9 +199,23 @@ final class MediaImporter: ObservableObject {
             settings.appendClassificationLogs(result.classificationLogs)
 
             if result.copiedCount == 0 {
-                setStatusMessage("\(volume.name) 中没有找到可导入的媒体文件", autoDismissAfter: 3.6)
+                if result.skippedExistingCount > 0 {
+                    setStatusMessage(
+                        "已跳过 \(result.skippedExistingCount) 个已导入文件",
+                        autoDismissAfter: 3.6
+                    )
+                } else {
+                    setStatusMessage("\(volume.name) 中没有找到可导入的媒体文件", autoDismissAfter: 3.6)
+                }
             } else {
-                setStatusMessage("已导入 \(result.copiedCount) 个文件到 \(result.destinationFolderName)", autoDismissAfter: 3.6)
+                if result.skippedExistingCount > 0 {
+                    setStatusMessage(
+                        "已导入 \(result.copiedCount) 个文件，跳过 \(result.skippedExistingCount) 个已导入文件",
+                        autoDismissAfter: 3.8
+                    )
+                } else {
+                    setStatusMessage("已导入 \(result.copiedCount) 个文件到 \(result.destinationFolderName)", autoDismissAfter: 3.6)
+                }
             }
             return true
         } catch is CancellationError {
@@ -272,6 +349,7 @@ final class MediaImporter: ObservableObject {
 
     struct ImportResult: Sendable {
         let copiedCount: Int
+        let skippedExistingCount: Int
         let destinationFolderName: String
         let classificationLogs: [FolderClassificationLogEntry]
     }
@@ -385,13 +463,6 @@ private enum ImportWorker {
             throw MediaImporter.ImportError.destinationInsideSourceVolume
         }
 
-        let timestamp = makeImportFolderName()
-        let finalFolder = standardizedDestinationFolder
-            .appendingPathComponent(volumeName, isDirectory: true)
-            .appendingPathComponent(timestamp, isDirectory: true)
-
-        try fileManager.createDirectory(at: finalFolder, withIntermediateDirectories: true)
-
         let mediaFiles = try collectMediaFiles(
             from: sourceRoot,
             allowedExtensions: allowedExtensions,
@@ -399,11 +470,40 @@ private enum ImportWorker {
             videoExtensions: videoExtensions
         )
 
-        let totalBytes = mediaFiles.reduce(into: Int64(0)) { partialResult, file in
+        let existingNameIndex = MediaFileCatalog.buildExistingNameIndex(
+            at: standardizedDestinationFolder,
+            photoExtensions: photoExtensions,
+            videoExtensions: videoExtensions
+        )
+
+        var pendingMediaFiles: [ImportableFile] = []
+        var skippedExistingPhotoCount = 0
+        var skippedExistingVideoCount = 0
+
+        for file in mediaFiles {
+            if existingNameIndex.contains(file.url.lastPathComponent, kind: file.kind.mediaFileKind) {
+                switch file.kind {
+                case .photo:
+                    skippedExistingPhotoCount += 1
+                case .video:
+                    skippedExistingVideoCount += 1
+                }
+            } else {
+                pendingMediaFiles.append(file)
+            }
+        }
+
+        let skippedExistingCount = skippedExistingPhotoCount + skippedExistingVideoCount
+        let timestamp = makeImportFolderName()
+        let finalFolder = standardizedDestinationFolder
+            .appendingPathComponent(volumeName, isDirectory: true)
+            .appendingPathComponent(timestamp, isDirectory: true)
+
+        let totalBytes = pendingMediaFiles.reduce(into: Int64(0)) { partialResult, file in
             partialResult += file.size
         }
-        let totalPhotoCount = mediaFiles.filter { $0.kind == .photo }.count
-        let totalVideoCount = mediaFiles.filter { $0.kind == .video }.count
+        let totalPhotoCount = pendingMediaFiles.filter { $0.kind == .photo }.count
+        let totalVideoCount = pendingMediaFiles.filter { $0.kind == .video }.count
         var importedBytes: Int64 = 0
         var copiedCount = 0
         var importedPhotoCount = 0
@@ -420,7 +520,18 @@ private enum ImportWorker {
             )
         )
 
-        for file in mediaFiles {
+        guard !pendingMediaFiles.isEmpty else {
+            return MediaImporter.ImportResult(
+                copiedCount: 0,
+                skippedExistingCount: skippedExistingCount,
+                destinationFolderName: finalFolder.lastPathComponent,
+                classificationLogs: []
+            )
+        }
+
+        try fileManager.createDirectory(at: finalFolder, withIntermediateDirectories: true)
+
+        for file in pendingMediaFiles {
             try Task.checkCancellation()
             let matchedRule = file.kind == .video
                 ? classificationConfiguration.matchingRule(for: file.sourceFolderName)
@@ -483,6 +594,7 @@ private enum ImportWorker {
 
         return MediaImporter.ImportResult(
             copiedCount: copiedCount,
+            skippedExistingCount: skippedExistingCount,
             destinationFolderName: finalFolder.lastPathComponent,
             classificationLogs: classificationLogs
         )
@@ -650,6 +762,15 @@ private enum ImportWorker {
         enum Kind: Sendable {
             case photo
             case video
+
+            var mediaFileKind: MediaFileKind {
+                switch self {
+                case .photo:
+                    return .photo
+                case .video:
+                    return .video
+                }
+            }
         }
 
         let url: URL
