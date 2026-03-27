@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
 
+private enum PreviewExecutionContext {
+    static let isActive: Bool = {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
+            || environment["XCODE_RUNNING_FOR_PLAYGROUNDS"] == "1"
+    }()
+}
+
 struct MenuBarLabelView: View {
     @EnvironmentObject private var diskMonitor: DiskMonitor
 
@@ -21,6 +29,7 @@ struct MenuContentView: View {
     @State private var isShowingSettingsPopover = false
     @State private var destinationAnimationSeed = UUID().uuidString
     @State private var isHoveringAutoImportChip = false
+    @State private var lastReportedContentHeight: CGFloat = 0
     @StateObject private var folderClassificationWindowController = FolderClassificationWindowController()
 
     init(onContentHeightChange: ((CGFloat) -> Void)? = nil) {
@@ -112,7 +121,7 @@ struct MenuContentView: View {
 
     private let cardStackSpacing: CGFloat = 12
 
-    var body: some View {
+    private var contentBody: some View {
         VStack(alignment: .leading, spacing: cardStackSpacing) {
             destinationSection
             deviceSection
@@ -127,11 +136,20 @@ struct MenuContentView: View {
                     .preference(key: MenuContentHeightPreferenceKey.self, value: proxy.size.height)
             }
         }
+    }
+
+    var body: some View {
+        contentBody
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .onPreferenceChange(MenuContentHeightPreferenceKey.self) { newHeight in
-            onContentHeightChange?(newHeight)
+            let measuredHeight = ceil(newHeight)
+            guard abs(measuredHeight - lastReportedContentHeight) > 0.5 else { return }
+            lastReportedContentHeight = measuredHeight
+            onContentHeightChange?(measuredHeight)
         }
         .animation(.easeInOut(duration: 0.2), value: visibleStatusMessage)
         .task(id: mediaSummaryRefreshTaskID) {
+            guard !PreviewExecutionContext.isActive else { return }
             await refreshMediaSummaries()
         }
     }
@@ -1876,13 +1894,19 @@ private struct VolumeCard: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
 
-                    TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-                        Text(importer.importRemainingTimeText ?? "--:--")
-                            .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineLimit(1)
-                            .minimumScaleFactor(1)
+                    Group {
+                        if PreviewExecutionContext.isActive {
+                            Text(importer.importRemainingTimeText ?? "--:--")
+                        } else {
+                            TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                                Text(importer.importRemainingTimeText ?? "--:--")
+                            }
+                        }
                     }
+                    .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                    .minimumScaleFactor(1)
                 }
 
                 GeometryReader { proxy in
@@ -2233,6 +2257,7 @@ private struct AnimatedOrbField: View {
         }
         .allowsHitTesting(false)
         .onAppear {
+            guard !PreviewExecutionContext.isActive else { return }
             guard !animate else { return }
             animate = true
         }
@@ -2400,6 +2425,7 @@ private struct AnimatedColorFlow: View {
         }
         .allowsHitTesting(false)
         .onAppear {
+            guard !PreviewExecutionContext.isActive else { return }
             guard !animate else { return }
             animate = true
         }

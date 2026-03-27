@@ -15,6 +15,7 @@ final class StatusBarController: NSObject {
     private let mainPopover = NSPopover()
     private var mainHostingController: NSHostingController<AnyView>?
     private var hoverPreviewPanel: HoverPreviewPanel?
+    private var lastMeasuredMainPopoverContentHeight: CGFloat = 0
 
     private var cancellables = Set<AnyCancellable>()
     private var hoverMonitorTimer: Timer?
@@ -55,27 +56,23 @@ final class StatusBarController: NSObject {
     private func configurePopovers() {
         mainPopover.behavior = .transient
         mainPopover.animates = true
-        mainPopover.contentSize = NSSize(width: Self.mainPopoverWidth, height: 520)
+        mainPopover.contentSize = NSSize(width: Self.mainPopoverWidth, height: 260)
 
         let hostingController = NSHostingController(
             rootView: AnyView(
-                VStack(spacing: 0) {
-                    MenuContentView(onContentHeightChange: { [weak self] newHeight in
-                        Task { @MainActor in
-                            self?.applyMainPopoverSize(for: newHeight)
-                        }
-                    })
-                        .environmentObject(diskMonitor)
-                        .environmentObject(settings)
-                        .environmentObject(importer)
-
-                    Spacer(minLength: 0)
-                }
+                MenuContentView(onContentHeightChange: { [weak self] newHeight in
+                    Task { @MainActor in
+                        self?.lastMeasuredMainPopoverContentHeight = newHeight
+                        self?.applyMainPopoverSize(for: newHeight)
+                    }
+                })
+                .environmentObject(diskMonitor)
+                .environmentObject(settings)
+                .environmentObject(importer)
                 .frame(
                     minWidth: Self.mainPopoverContentViewWidth,
                     idealWidth: Self.mainPopoverContentViewWidth,
                     maxWidth: Self.mainPopoverContentViewWidth,
-                    maxHeight: .infinity,
                     alignment: .topLeading
                 )
             )
@@ -89,26 +86,19 @@ final class StatusBarController: NSObject {
     }
 
     private func updateMainPopoverSize() {
-        guard let hostingController = mainHostingController else { return }
-
-        hostingController.view.invalidateIntrinsicContentSize()
-        hostingController.view.layoutSubtreeIfNeeded()
-
-        let fittingSize = hostingController.sizeThatFits(
-            in: NSSize(
-                width: Self.mainPopoverContentViewWidth,
-                height: .greatestFiniteMagnitude
-            )
-        )
-        applyMainPopoverSize(for: fittingSize.height)
+        if lastMeasuredMainPopoverContentHeight > 0 {
+            applyMainPopoverSize(for: lastMeasuredMainPopoverContentHeight)
+        }
     }
 
     private func applyMainPopoverSize(for contentHeight: CGFloat) {
         guard let hostingController = mainHostingController else { return }
+        guard contentHeight > 0 else { return }
 
-        let targetHeight = min(760, max(260, ceil(contentHeight)))
+        let targetHeight = min(760, ceil(contentHeight))
         let targetSize = NSSize(width: Self.mainPopoverWidth, height: targetHeight)
-        let previousWindowFrame = mainPopover.isShown ? mainPopover.contentViewController?.view.window?.frame : nil
+        let window = mainPopover.contentViewController?.view.window
+        let previousWindowFrame = mainPopover.isShown ? window?.frame : nil
 
         if hostingController.preferredContentSize != targetSize {
             hostingController.preferredContentSize = targetSize
@@ -117,14 +107,17 @@ final class StatusBarController: NSObject {
         guard mainPopover.contentSize != targetSize else { return }
         mainPopover.contentSize = targetSize
 
-        guard let previousWindowFrame,
-              let window = mainPopover.contentViewController?.view.window else { return }
+        guard let previousWindowFrame, let window else { return }
 
-        var adjustedFrame = window.frame
-        adjustedFrame.origin.x = previousWindowFrame.origin.x
-        adjustedFrame.origin.y += previousWindowFrame.maxY - adjustedFrame.maxY
+        let targetWindowFrame = window.frameRect(
+            forContentRect: NSRect(origin: .zero, size: targetSize)
+        )
 
-        guard adjustedFrame.origin != window.frame.origin else { return }
+        var adjustedFrame = previousWindowFrame
+        adjustedFrame.size = targetWindowFrame.size
+        adjustedFrame.origin.y = previousWindowFrame.maxY - adjustedFrame.height
+
+        guard adjustedFrame != window.frame else { return }
         window.setFrame(adjustedFrame, display: false)
     }
 

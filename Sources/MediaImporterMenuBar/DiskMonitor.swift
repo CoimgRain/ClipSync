@@ -79,7 +79,7 @@ struct MountedVolume: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class DiskMonitor: ObservableObject {
-    private static let volumeResourceKeys: Set<URLResourceKey> = [
+    nonisolated private static let volumeResourceKeys: Set<URLResourceKey> = [
         .volumeNameKey,
         .volumeLocalizedFormatDescriptionKey,
         .volumeIsLocalKey,
@@ -98,10 +98,11 @@ final class DiskMonitor: ObservableObject {
 
     private var observers: [NSObjectProtocol] = []
     private let notificationCenter = NSWorkspace.shared.notificationCenter
+    private var refreshRevision = 0
 
     init() {
-        refreshVolumes()
         startObserving()
+        refreshVolumes()
     }
 
 #if DEBUG
@@ -112,18 +113,18 @@ final class DiskMonitor: ObservableObject {
 #endif
 
     func refreshVolumes() {
-        let urls = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: Array(Self.volumeResourceKeys),
-            options: [.skipHiddenVolumes]
-        ) ?? []
+        refreshRevision += 1
+        let revision = refreshRevision
+        let existingSummaries = mediaSummaries
 
-        let volumes = urls.compactMap(Self.makeMountedVolume(from:))
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        removableVolumes = volumes
-
-        let currentIDs = Set(volumes.map(\.id))
-        mediaSummaries = mediaSummaries.filter { currentIDs.contains($0.key) }
-        mediaSummaryRefreshToken = UUID()
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let volumes = Self.discoverRemovableVolumes()
+            await self?.applyVolumeRefresh(
+                volumes,
+                existingSummaries: existingSummaries,
+                revision: revision
+            )
+        }
     }
 
     private func startObserving() {
@@ -142,7 +143,7 @@ final class DiskMonitor: ObservableObject {
         }
     }
 
-    private static func makeMountedVolume(from url: URL) -> MountedVolume? {
+    nonisolated private static func makeMountedVolume(from url: URL) -> MountedVolume? {
         guard let values = try? url.resourceValues(forKeys: Self.volumeResourceKeys) else {
             return nil
         }
@@ -165,7 +166,31 @@ final class DiskMonitor: ObservableObject {
         )
     }
 
-    private static func capacityInfo(for url: URL, values: URLResourceValues) -> (total: Int64, available: Int64) {
+    nonisolated private static func discoverRemovableVolumes() -> [MountedVolume] {
+        let urls = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: Array(Self.volumeResourceKeys),
+            options: [.skipHiddenVolumes]
+        ) ?? []
+
+        return urls.compactMap(Self.makeMountedVolume(from:))
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func applyVolumeRefresh(
+        _ volumes: [MountedVolume],
+        existingSummaries: [String: VolumeMediaSummary],
+        revision: Int
+    ) {
+        guard revision == refreshRevision else { return }
+
+        removableVolumes = volumes
+
+        let currentIDs = Set(volumes.map(\.id))
+        mediaSummaries = existingSummaries.filter { currentIDs.contains($0.key) }
+        mediaSummaryRefreshToken = UUID()
+    }
+
+    nonisolated private static func capacityInfo(for url: URL, values: URLResourceValues) -> (total: Int64, available: Int64) {
         let totalCapacity = Int64(values.volumeTotalCapacity ?? 0)
 
         let availableCandidates: [Int64?] = [
