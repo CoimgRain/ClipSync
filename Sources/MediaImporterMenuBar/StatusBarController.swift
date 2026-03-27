@@ -4,12 +4,16 @@ import SwiftUI
 
 @MainActor
 final class StatusBarController: NSObject {
+    private static let mainPopoverWidth: CGFloat = 360
+    private static let mainPopoverContentViewWidth: CGFloat = 360
+
     private let diskMonitor: DiskMonitor
     private let settings: AppSettings
     private let importer: MediaImporter
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let mainPopover = NSPopover()
+    private var mainHostingController: NSHostingController<AnyView>?
     private var hoverPreviewPanel: HoverPreviewPanel?
 
     private var cancellables = Set<AnyCancellable>()
@@ -51,16 +55,77 @@ final class StatusBarController: NSObject {
     private func configurePopovers() {
         mainPopover.behavior = .transient
         mainPopover.animates = true
-        mainPopover.contentSize = NSSize(width: 392, height: 760)
-        mainPopover.contentViewController = NSHostingController(
-            rootView: MenuContentView()
-                .environmentObject(diskMonitor)
-                .environmentObject(settings)
-                .environmentObject(importer)
-                .frame(width: 360)
+        mainPopover.contentSize = NSSize(width: Self.mainPopoverWidth, height: 520)
+
+        let hostingController = NSHostingController(
+            rootView: AnyView(
+                VStack(spacing: 0) {
+                    MenuContentView(onContentHeightChange: { [weak self] newHeight in
+                        Task { @MainActor in
+                            self?.applyMainPopoverSize(for: newHeight)
+                        }
+                    })
+                        .environmentObject(diskMonitor)
+                        .environmentObject(settings)
+                        .environmentObject(importer)
+
+                    Spacer(minLength: 0)
+                }
+                .frame(
+                    minWidth: Self.mainPopoverContentViewWidth,
+                    idealWidth: Self.mainPopoverContentViewWidth,
+                    maxWidth: Self.mainPopoverContentViewWidth,
+                    maxHeight: .infinity,
+                    alignment: .topLeading
+                )
+            )
         )
+        hostingController.sizingOptions = []
+        mainHostingController = hostingController
+        mainPopover.contentViewController = hostingController
+        updateMainPopoverSize()
 
         configureHoverPreviewPanel()
+    }
+
+    private func updateMainPopoverSize() {
+        guard let hostingController = mainHostingController else { return }
+
+        hostingController.view.invalidateIntrinsicContentSize()
+        hostingController.view.layoutSubtreeIfNeeded()
+
+        let fittingSize = hostingController.sizeThatFits(
+            in: NSSize(
+                width: Self.mainPopoverContentViewWidth,
+                height: .greatestFiniteMagnitude
+            )
+        )
+        applyMainPopoverSize(for: fittingSize.height)
+    }
+
+    private func applyMainPopoverSize(for contentHeight: CGFloat) {
+        guard let hostingController = mainHostingController else { return }
+
+        let targetHeight = min(760, max(260, ceil(contentHeight)))
+        let targetSize = NSSize(width: Self.mainPopoverWidth, height: targetHeight)
+        let previousWindowFrame = mainPopover.isShown ? mainPopover.contentViewController?.view.window?.frame : nil
+
+        if hostingController.preferredContentSize != targetSize {
+            hostingController.preferredContentSize = targetSize
+        }
+
+        guard mainPopover.contentSize != targetSize else { return }
+        mainPopover.contentSize = targetSize
+
+        guard let previousWindowFrame,
+              let window = mainPopover.contentViewController?.view.window else { return }
+
+        var adjustedFrame = window.frame
+        adjustedFrame.origin.x = previousWindowFrame.origin.x
+        adjustedFrame.origin.y += previousWindowFrame.maxY - adjustedFrame.maxY
+
+        guard adjustedFrame.origin != window.frame.origin else { return }
+        window.setFrame(adjustedFrame, display: false)
     }
 
     private func configureHoverPreviewPanel() {
@@ -95,11 +160,19 @@ final class StatusBarController: NSObject {
             .sink { [weak self] volumes in
                 guard let self else { return }
                 updateStatusItemAppearance()
+                updateMainPopoverSize()
                 updateHoverPreviewPanelSize()
 
                 if volumes.isEmpty {
                     closeHoverPreview()
                 }
+            }
+            .store(in: &cancellables)
+
+        importer.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.updateMainPopoverSize()
             }
             .store(in: &cancellables)
     }
@@ -320,6 +393,7 @@ final class StatusBarController: NSObject {
         if mainPopover.isShown {
             mainPopover.performClose(nil)
         } else {
+            updateMainPopoverSize()
             mainPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -394,6 +468,105 @@ private struct HoverPreviewCard: View {
         return "待导入 \(mediaSummary.pendingPhotoCount) 张照片 · \(mediaSummary.pendingVideoCount) 个视频"
     }
 
+    private func metricPillWidths(
+        totalWidth: CGFloat,
+        usedMinimumWidth: CGFloat,
+        remainingMinimumWidth: CGFloat
+    ) -> (used: CGFloat, remaining: CGFloat) {
+        let usedFraction = max(0, min(1, volume.usageFraction))
+        let remainingFraction = max(0, 1 - usedFraction)
+
+        var usedWidth = max(totalWidth * usedFraction, usedMinimumWidth)
+        var remainingWidth = max(totalWidth * remainingFraction, remainingMinimumWidth)
+        let overflow = usedWidth + remainingWidth - totalWidth
+
+        guard overflow > 0 else {
+            return (usedWidth, remainingWidth)
+        }
+
+        let usedFlexibleWidth = max(0, usedWidth - usedMinimumWidth)
+        let remainingFlexibleWidth = max(0, remainingWidth - remainingMinimumWidth)
+        let flexibleWidth = usedFlexibleWidth + remainingFlexibleWidth
+
+        if flexibleWidth > 0 {
+            usedWidth -= overflow * (usedFlexibleWidth / flexibleWidth)
+            remainingWidth -= overflow * (remainingFlexibleWidth / flexibleWidth)
+            return (usedWidth, remainingWidth)
+        }
+
+        return (usedMinimumWidth, remainingMinimumWidth)
+    }
+
+    private var metricPillsRowHeight: CGFloat {
+        let usedFraction = max(0, min(1, volume.usageFraction))
+        let remainingFraction = max(0, 1 - usedFraction)
+        let showsUsedPill = usedFraction > 0.0001
+        let showsRemainingPill = remainingFraction > 0.0001
+        let separatorWidth: CGFloat = (showsUsedPill && showsRemainingPill) ? 10 : 0
+        let availableWidth = HoverPreviewLayout.listWidth - 28
+        let usedMinimumWidth = showsUsedPill ? HoverPreviewMetricPill.minimumWidth(title: "已用空间", value: volume.usedText) : 0
+        let remainingMinimumWidth = showsRemainingPill ? HoverPreviewMetricPill.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+        let requiresStackedLayout = showsUsedPill && showsRemainingPill
+            && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > availableWidth)
+
+        return requiresStackedLayout ? 120 : 56
+    }
+
+    private var metricPillsRow: some View {
+        GeometryReader { proxy in
+            let usedFraction = max(0, min(1, volume.usageFraction))
+            let remainingFraction = max(0, 1 - usedFraction)
+            let showsUsedPill = usedFraction > 0.0001
+            let showsRemainingPill = remainingFraction > 0.0001
+            let separatorWidth: CGFloat = (showsUsedPill && showsRemainingPill) ? 10 : 0
+            let contentWidth = max(0, proxy.size.width - separatorWidth)
+            let usedMinimumWidth = showsUsedPill ? HoverPreviewMetricPill.minimumWidth(title: "已用空间", value: volume.usedText) : 0
+            let remainingMinimumWidth = showsRemainingPill ? HoverPreviewMetricPill.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+            let widths = metricPillWidths(
+                totalWidth: contentWidth,
+                usedMinimumWidth: usedMinimumWidth,
+                remainingMinimumWidth: remainingMinimumWidth
+            )
+            let requiresStackedLayout = showsUsedPill && showsRemainingPill
+                && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > proxy.size.width)
+
+            Group {
+                if requiresStackedLayout {
+                    VStack(spacing: 8) {
+                        if showsUsedPill {
+                            HoverPreviewMetricPill(title: "已用空间", value: volume.usedText)
+                        }
+
+                        if showsRemainingPill {
+                            HoverPreviewMetricPill(title: "剩余空间", value: volume.availableText)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 0) {
+                        if showsUsedPill {
+                            HoverPreviewMetricPill(title: "已用空间", value: volume.usedText)
+                                .frame(width: widths.used, alignment: .leading)
+                        }
+
+                        if showsUsedPill && showsRemainingPill {
+                            Circle()
+                                .fill(.white.opacity(0.5))
+                                .frame(width: 4, height: 4)
+                                .frame(width: separatorWidth)
+                        }
+
+                        if showsRemainingPill {
+                            HoverPreviewMetricPill(title: "剩余空间", value: volume.availableText)
+                                .frame(width: widths.remaining, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: metricPillsRowHeight)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -423,10 +596,7 @@ private struct HoverPreviewCard: View {
                     }
             }
 
-            HStack(spacing: 10) {
-                HoverPreviewMetricPill(title: "已用空间", value: volume.usedText)
-                HoverPreviewMetricPill(title: "剩余空间", value: volume.availableText)
-            }
+            metricPillsRow
 
             HStack(spacing: 8) {
                 Circle()
@@ -455,6 +625,17 @@ private struct HoverPreviewCard: View {
 private struct HoverPreviewMetricPill: View {
     let title: String
     let value: String
+
+    private static let titleFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    private static let valueFont = NSFont.systemFont(ofSize: 15, weight: .bold)
+    private static let horizontalPadding: CGFloat = 10
+    private static let widthBuffer: CGFloat = 16
+
+    static func minimumWidth(title: String, value: String) -> CGFloat {
+        let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
+        let valueWidth = (value as NSString).size(withAttributes: [.font: valueFont]).width
+        return ceil(max(titleWidth, valueWidth) + (horizontalPadding * 2) + widthBuffer)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {

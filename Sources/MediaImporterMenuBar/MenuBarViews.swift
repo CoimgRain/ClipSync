@@ -17,10 +17,15 @@ struct MenuContentView: View {
     @EnvironmentObject private var diskMonitor: DiskMonitor
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var importer: MediaImporter
+    let onContentHeightChange: ((CGFloat) -> Void)?
     @State private var isShowingSettingsPopover = false
     @State private var destinationAnimationSeed = UUID().uuidString
     @State private var isHoveringAutoImportChip = false
     @StateObject private var folderClassificationWindowController = FolderClassificationWindowController()
+
+    init(onContentHeightChange: ((CGFloat) -> Void)? = nil) {
+        self.onContentHeightChange = onContentHeightChange
+    }
 
     private var visibleStatusMessage: String? {
         guard importer.isImporting || importer.lastResultMessage != "等待导入" else {
@@ -111,13 +116,20 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: cardStackSpacing) {
             destinationSection
             deviceSection
-
-            Spacer(minLength: 0)
-
             bottomSection
         }
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(key: MenuContentHeightPreferenceKey.self, value: proxy.size.height)
+            }
+        }
+        .onPreferenceChange(MenuContentHeightPreferenceKey.self) { newHeight in
+            onContentHeightChange?(newHeight)
+        }
         .animation(.easeInOut(duration: 0.2), value: visibleStatusMessage)
         .task(id: mediaSummaryRefreshTaskID) {
             await refreshMediaSummaries()
@@ -1023,6 +1035,14 @@ private struct FolderClassificationBadge: View {
     }
 }
 
+private struct MenuContentHeightPreferenceKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private struct StatusBanner: View {
     let message: String
 
@@ -1130,7 +1150,6 @@ private struct VolumeCard: View {
     @EnvironmentObject private var diskMonitor: DiskMonitor
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var importer: MediaImporter
-    @Namespace private var formatSummaryNamespace
     @State private var animationSeed = UUID().uuidString
     @State private var isHoveringCapacityChip = false
     @State private var isHoveringOpenVolumeAction = false
@@ -1179,7 +1198,7 @@ private struct VolumeCard: View {
     }
 
     private var expandableSectionAnimation: Animation {
-        .spring(response: 0.30, dampingFraction: 0.84, blendDuration: 0.18)
+        .easeInOut(duration: 0.18)
     }
 
     private var shouldShowFooterSection: Bool {
@@ -1424,53 +1443,42 @@ private struct VolumeCard: View {
         .spring(response: 0.42, dampingFraction: 0.86, blendDuration: 0.18)
     }
 
-    private static let formatSummaryFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
-
-    private var currentFormatSummaryAvailableWidth: CGFloat {
-        max(120, headerRowWidth - (isHoveringCapacityChip ? expandedCapacityChipWidth : compactCapacityChipWidth) - 18)
-    }
-
-    private var preferredSingleLineFormatSummaryWidth: CGFloat {
-        currentFormatSummaryAvailableWidth + (isHoveringCapacityChip ? 0 : 40)
-    }
-
-    private var formatSummaryTransition: AnyTransition {
-        .asymmetric(
-            insertion: .opacity.combined(with: .offset(x: 10, y: 6)),
-            removal: .opacity.combined(with: .offset(x: -10, y: -6))
-        )
-    }
-
     private var formatSummaryAnimation: Animation {
-        .spring(response: 0.46, dampingFraction: 0.86, blendDuration: 0.20)
+        .easeInOut(duration: 0.18)
     }
 
-    private var fullFormatSummaryText: String {
-        "\(volume.formatDescription) 格式 · 已用 \(usagePercent)%"
+    private static let formatSummaryUIFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
+
+    private var formatSummaryFormatNameText: String {
+        volume.formatDescription
     }
 
-    private var formatOnlySummaryText: String {
-        "\(volume.formatDescription) 格式"
+    private var formatSummaryFormatSuffixText: String {
+        " 格式"
     }
 
-    private var usedOnlySummaryText: String {
-        "已用 \(usagePercent)%"
+    private var expandedFormatSummaryMiddleText: String {
+        " · 已用 "
     }
 
-    private var formatSummaryLayoutMode: FormatSummaryLayoutMode {
-        if formatSummaryTextWidth(fullFormatSummaryText) <= preferredSingleLineFormatSummaryWidth {
-            return .singleLine
-        }
-
-        if formatSummaryTextWidth(formatOnlySummaryText) <= currentFormatSummaryAvailableWidth {
-            return .splitBeforeUsed
-        }
-
-        return .wrapped
+    private var compactFormatSummaryMiddleText: String {
+        " · "
     }
 
     private func formatSummaryTextWidth(_ text: String) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: Self.formatSummaryFont]).width)
+        ceil((text as NSString).size(withAttributes: [.font: Self.formatSummaryUIFont]).width)
+    }
+
+    private var expandedFormatSummaryMiddleWidth: CGFloat {
+        formatSummaryTextWidth(expandedFormatSummaryMiddleText)
+    }
+
+    private var compactFormatSummaryMiddleWidth: CGFloat {
+        formatSummaryTextWidth(compactFormatSummaryMiddleText)
+    }
+
+    private var formatSummaryTrailingText: String {
+        "\(usagePercent)%"
     }
 
     private var capacityChipBackground: some View {
@@ -1557,60 +1565,11 @@ private struct VolumeCard: View {
         .contentShape(Capsule())
         .animation(capacityChipAnimation, value: isHoveringCapacityChip)
         .onHover { hovering in
-            withAnimation(capacityChipAnimation) {
-                isHoveringCapacityChip = hovering
-            }
+            isHoveringCapacityChip = hovering
             if !hovering {
                 isHoveringOpenVolumeAction = false
                 isHoveringEjectVolumeAction = false
             }
-        }
-    }
-
-    private func fixedFormatSummaryText(_ text: String, opacity: Double = 1) -> some View {
-        Text(text)
-            .foregroundStyle(.white.opacity(opacity))
-            .lineLimit(1)
-    }
-
-    private func animatedUsedSummaryText(_ text: String, opacity: Double = 1) -> some View {
-        Text(text)
-            .foregroundStyle(.white.opacity(opacity))
-            .lineLimit(1)
-            .matchedGeometryEffect(id: "used-line", in: formatSummaryNamespace, properties: .position, anchor: .leading)
-    }
-
-    private var singleLineFormatSummaryView: some View {
-        HStack(spacing: 0) {
-            fixedFormatSummaryText(formatOnlySummaryText)
-
-            Text(" · ")
-                .foregroundStyle(.white.opacity(0.64))
-                .transition(.opacity.combined(with: .scale(scale: 0.92)))
-
-            animatedUsedSummaryText(usedOnlySummaryText)
-        }
-        .lineLimit(1)
-    }
-
-    private var splitBeforeUsedFormatSummaryView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            fixedFormatSummaryText(formatOnlySummaryText)
-
-            animatedUsedSummaryText(usedOnlySummaryText)
-                .padding(.top, 1)
-        }
-    }
-
-    private var wrappedFormatSummaryView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(formatOnlySummaryText)
-                .foregroundStyle(.white.opacity(0.70))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            animatedUsedSummaryText(usedOnlySummaryText, opacity: 0.70)
-                .padding(.top, 1)
         }
     }
 
@@ -1639,50 +1598,63 @@ private struct VolumeCard: View {
         return (usedMinimumWidth, remainingMinimumWidth)
     }
 
-    private var capacityTilesRow: some View {
+    private var capacityTilesRowHeight: CGFloat {
         let usedFraction = max(0, min(1, volume.usageFraction))
         let remainingFraction = max(0, 1 - usedFraction)
         let showsUsedTile = usedFraction > 0.0001
         let showsRemainingTile = remainingFraction > 0.0001
         let separatorWidth: CGFloat = (showsUsedTile && showsRemainingTile) ? 12 : 0
         let availableWidth = max(headerRowWidth, 0)
-        let hasMeasuredWidth = availableWidth > 0
-        let contentWidth = max(0, availableWidth - separatorWidth)
         let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
         let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
-        let widths = capacityTileWidths(
-            totalWidth: contentWidth,
-            usedMinimumWidth: usedMinimumWidth,
-            remainingMinimumWidth: remainingMinimumWidth
-        )
-        let requiresStackedLayout = hasMeasuredWidth && showsUsedTile && showsRemainingTile
+        let requiresStackedLayout = availableWidth > 0 && showsUsedTile && showsRemainingTile
             && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > availableWidth)
 
-        return Group {
-            if requiresStackedLayout {
-                VStack(spacing: 8) {
-                    if showsUsedTile {
-                        InfoTile(
-                            title: "已用空间",
-                            value: volume.usedText,
-                            backgroundColors: neutralInfoTileBackgroundColors,
-                            borderColor: infoTileBorderColor
-                        )
-                    }
+        return requiresStackedLayout ? 136 : 54
+    }
 
-                    if showsRemainingTile {
-                        InfoTile(
-                            title: "剩余空间",
-                            value: volume.availableText,
-                            backgroundColors: neutralInfoTileBackgroundColors,
-                            borderColor: infoTileBorderColor
-                        )
+    private var capacityTilesRow: some View {
+        GeometryReader { proxy in
+            let usedFraction = max(0, min(1, volume.usageFraction))
+            let remainingFraction = max(0, 1 - usedFraction)
+            let showsUsedTile = usedFraction > 0.0001
+            let showsRemainingTile = remainingFraction > 0.0001
+            let separatorWidth: CGFloat = (showsUsedTile && showsRemainingTile) ? 12 : 0
+            let contentWidth = max(0, proxy.size.width - separatorWidth)
+            let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
+            let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+            let widths = capacityTileWidths(
+                totalWidth: contentWidth,
+                usedMinimumWidth: usedMinimumWidth,
+                remainingMinimumWidth: remainingMinimumWidth
+            )
+            let requiresStackedLayout = showsUsedTile && showsRemainingTile
+                && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > proxy.size.width)
+
+            Group {
+                if requiresStackedLayout {
+                    VStack(spacing: 8) {
+                        if showsUsedTile {
+                            InfoTile(
+                                title: "已用空间",
+                                value: volume.usedText,
+                                backgroundColors: neutralInfoTileBackgroundColors,
+                                borderColor: infoTileBorderColor
+                            )
+                        }
+
+                        if showsRemainingTile {
+                            InfoTile(
+                                title: "剩余空间",
+                                value: volume.availableText,
+                                backgroundColors: neutralInfoTileBackgroundColors,
+                                borderColor: infoTileBorderColor
+                            )
+                        }
                     }
-                }
-            } else {
-                HStack(spacing: 0) {
-                    if showsUsedTile {
-                        if hasMeasuredWidth {
+                } else {
+                    HStack(spacing: 0) {
+                        if showsUsedTile {
                             InfoTile(
                                 title: "已用空间",
                                 value: volume.usedText,
@@ -1690,25 +1662,16 @@ private struct VolumeCard: View {
                                 borderColor: infoTileBorderColor
                             )
                             .frame(width: widths.used, alignment: .leading)
-                        } else {
-                            InfoTile(
-                                title: "已用空间",
-                                value: volume.usedText,
-                                backgroundColors: neutralInfoTileBackgroundColors,
-                                borderColor: infoTileBorderColor
-                            )
                         }
-                    }
 
-                    if showsUsedTile && showsRemainingTile {
-                        Circle()
-                            .fill(.white.opacity(0.5))
-                            .frame(width: 4, height: 4)
-                            .frame(width: separatorWidth)
-                    }
+                        if showsUsedTile && showsRemainingTile {
+                            Circle()
+                                .fill(.white.opacity(0.5))
+                                .frame(width: 4, height: 4)
+                                .frame(width: separatorWidth)
+                        }
 
-                    if showsRemainingTile {
-                        if hasMeasuredWidth {
+                        if showsRemainingTile {
                             InfoTile(
                                 title: "剩余空间",
                                 value: volume.availableText,
@@ -1716,37 +1679,57 @@ private struct VolumeCard: View {
                                 borderColor: infoTileBorderColor
                             )
                             .frame(width: widths.remaining, alignment: .leading)
-                        } else {
-                            InfoTile(
-                                title: "剩余空间",
-                                value: volume.availableText,
-                                backgroundColors: neutralInfoTileBackgroundColors,
-                                borderColor: infoTileBorderColor
-                            )
                         }
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: capacityTilesRowHeight)
     }
 
     private var formatSummaryView: some View {
-        ZStack(alignment: .topLeading) {
-            switch formatSummaryLayoutMode {
-            case .singleLine:
-                singleLineFormatSummaryView
-            case .splitBeforeUsed:
-                splitBeforeUsedFormatSummaryView
-            case .wrapped:
-                wrappedFormatSummaryView
-                    .transition(formatSummaryTransition)
+        HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text(formatSummaryFormatNameText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Text(formatSummaryFormatSuffixText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
+
+            ZStack {
+                Text(expandedFormatSummaryMiddleText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .opacity(isHoveringCapacityChip ? 0 : 1)
+                    .offset(x: isHoveringCapacityChip ? -4 : 0)
+
+                Text(compactFormatSummaryMiddleText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .opacity(isHoveringCapacityChip ? 1 : 0)
+                    .offset(x: isHoveringCapacityChip ? 0 : 4)
+            }
+            .frame(
+                width: isHoveringCapacityChip
+                    ? compactFormatSummaryMiddleWidth
+                    : expandedFormatSummaryMiddleWidth,
+                alignment: .center
+            )
+            .clipped()
+
+            Text(formatSummaryTrailingText)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .font(.system(size: 14, weight: .semibold, design: .rounded))
         .foregroundStyle(.white.opacity(0.70))
+        .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .animation(formatSummaryAnimation, value: formatSummaryLayoutMode)
+        .animation(formatSummaryAnimation, value: isHoveringCapacityChip)
     }
 
     var body: some View {
@@ -1758,8 +1741,7 @@ private struct VolumeCard: View {
                     formatSummaryView
                 }
                 .padding(.leading, 4)
-
-                Spacer(minLength: 0)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 capacityChip
                     .padding(.top, 2)
@@ -1773,7 +1755,6 @@ private struct VolumeCard: View {
             .onPreferenceChange(HeaderRowWidthPreferenceKey.self) { newValue in
                 headerRowWidth = newValue
             }
-            .animation(capacityChipAnimation, value: isHoveringCapacityChip)
 
             capacityTilesRow
 
@@ -1797,7 +1778,6 @@ private struct VolumeCard: View {
                 .strokeBorder(.white.opacity(0.1), lineWidth: 1)
         }
         .contentShape(cardShape)
-        .animation(expandableSectionAnimation, value: shouldShowFooterSection)
         .onHover { hovering in
             withAnimation(expandableSectionAnimation) {
                 isHoveringCard = hovering
@@ -2137,12 +2117,6 @@ private struct InfoTile: View {
                 }
         }
     }
-}
-
-private enum FormatSummaryLayoutMode {
-    case singleLine
-    case splitBeforeUsed
-    case wrapped
 }
 
 private struct HeaderRowWidthPreferenceKey: PreferenceKey {
