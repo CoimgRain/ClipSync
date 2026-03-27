@@ -483,7 +483,7 @@ private final class FolderClassificationWindowController: NSObject, ObservableOb
 
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 720),
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -496,8 +496,8 @@ private final class FolderClassificationWindowController: NSObject, ObservableOb
         window.center()
         window.delegate = self
         window.contentViewController = hostingController
-        window.setContentSize(NSSize(width: 760, height: 720))
-        window.minSize = NSSize(width: 720, height: 640)
+        window.setContentSize(NSSize(width: 780, height: 620))
+        window.minSize = NSSize(width: 760, height: 560)
 
         self.window = window
 
@@ -538,56 +538,90 @@ private struct FolderClassificationRulesView: View {
         return "目前已有 \(settings.classificationLogs.count) 条日志，需要时再点开查看就行。"
     }
 
+    private let contentAlignmentInset: CGFloat = 18
+    private let headerContentInset: CGFloat = 2
+    private let headerTextSpacing: CGFloat = 12
+    private let stepOverviewCardHeight: CGFloat = 104
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("文件夹分类规则")
-                        .font(.title3.bold())
-                    Text("想要的效果很简单：当原始文件夹名里包含某个词时，对应视频就自动放进你指定的目标子文件夹。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+        ZStack {
+            FolderClassificationPalette.windowBackground
+                .ignoresSafeArea()
 
-                Spacer()
+            VStack(alignment: .leading, spacing: 24) {
+                headerSection
 
-                Button("完成") {
-                    onDone()
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 24) {
+                        topOverviewSection
+                        ruleListSection
+                    }
+                    .padding(.bottom, 8)
                 }
-                .buttonStyle(.borderedProminent)
             }
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    topOverviewSection
-                    ruleListSection
-                    supplementarySection
-                    secondaryToolsSection
-                }
-                .padding(.bottom, 4)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 20)
+            .ignoresSafeArea(.container, edges: .horizontal)
         }
-        .padding(20)
-        .frame(width: 760, height: 720, alignment: .topLeading)
+        .frame(width: 780, height: 620, alignment: .topLeading)
         .sheet(isPresented: $isShowingLogsSheet) {
             FolderClassificationLogsSheetView()
                 .environmentObject(settings)
         }
     }
 
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: headerTextSpacing) {
+            HStack(alignment: .top, spacing: 16) {
+                Text("文件夹分类规则")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(FolderClassificationPalette.primaryText)
+                    .padding(.leading, 4)
+                    .padding(.top, 2)
+
+                Spacer()
+
+                Button {
+                    onDone()
+                } label: {
+                    Text("完成")
+                        .font(.system(size: 24, weight: .bold))
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+            }
+
+            Text("设置规则后，只要原文件夹名包含你填写的关键词，照片和视频就会自动导入到目标文件夹里的对应子文件夹。")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(FolderClassificationPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+                }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, headerContentInset)
+    }
+
     private var topOverviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("基础设置")
-                .font(.headline)
-
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
                 stepOneSection
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .frame(minHeight: 138, alignment: .topLeading)
+                    .frame(minHeight: stepOverviewCardHeight, maxHeight: stepOverviewCardHeight, alignment: .topLeading)
 
                 stepTwoSection
                     .frame(maxWidth: .infinity, alignment: .topLeading)
-                    .frame(minHeight: 138, alignment: .topLeading)
+                    .frame(minHeight: stepOverviewCardHeight, maxHeight: stepOverviewCardHeight, alignment: .topLeading)
             }
         }
     }
@@ -603,50 +637,35 @@ private struct FolderClassificationRulesView: View {
     }
 
     private var stepOneSection: some View {
-        FolderClassificationSettingCard(
+        FolderClassificationOverviewStepCard(
             badgeText: "步骤 1",
             title: "导入目标文件夹",
-            detail: settings.destinationFolderPath.isEmpty
-                ? "还没有选择导入目标文件夹。"
-                : "已经选择好导入目标文件夹了。"
+            panelTitle: settings.destinationFolderPath.isEmpty
+                ? "还没有选择导入文件夹"
+                : settings.destinationFolderPath,
+            panelDetail: nil
         ) {
-            HStack(alignment: .top, spacing: 10) {
-                Text(settings.destinationFolderPath.isEmpty ? "还没有选择导入文件夹" : settings.destinationFolderPath)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-
-                Button("选择目标文件夹") {
-                    settings.chooseDestinationFolder()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+            Button("选择目标文件夹") {
+                settings.chooseDestinationFolder()
             }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .font(.system(size: 16, weight: .semibold))
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
     private var stepTwoSection: some View {
-        FolderClassificationSettingCard(
+        FolderClassificationOverviewStepCard(
             badgeText: "步骤 2",
             title: "开启自动分类",
-            detail: "开启后，下面的规则才会参与匹配。"
+            panelTitle: nil,
+            panelDetail: "开启后，下面的规则才会参与匹配。"
         ) {
-            HStack(alignment: .center, spacing: 10) {
-                Text("开启文件夹自动分类")
-                    .font(.callout.weight(.semibold))
-
-                Spacer()
-
-                Toggle("", isOn: $settings.folderClassificationEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-            }
+            Toggle("", isOn: $settings.folderClassificationEnabled)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 
@@ -682,38 +701,32 @@ private struct FolderClassificationRulesView: View {
                         badgeText: "步骤 3",
                         title: "规则列表"
                     )
-                    Text("新增规则后，填写“包含什么词”和“放到哪个子文件夹”，就可以开始自动分类。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
-
-                Spacer()
-
-                Button {
-                    settings.addFolderClassificationRule()
-                } label: {
-                    Label("新增规则", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
             }
 
-            Text("匹配顺序从上到下依次执行，命中第一条就停止。可以把更常用的规则放在更上面。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+            Text("当文件夹名同时符合多条规则时，会优先按更靠上的那条执行。可以把更常用的规则放在更上面。")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.8))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(FolderClassificationPalette.panelBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+                }
 
             if settings.folderClassificationRules.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("还没有规则。")
-                        .font(.subheadline.weight(.semibold))
+                    Text("还没有规则")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(FolderClassificationPalette.primaryText)
                     Text("新增一条后，填上“包含什么词”和“放到哪个文件夹”，就可以开始自动分类。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(FolderClassificationPalette.secondaryText)
                 }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
                 .padding(.vertical, 10)
             } else {
                 VStack(spacing: 10) {
@@ -730,10 +743,51 @@ private struct FolderClassificationRulesView: View {
                     }
                 }
             }
+
+            HStack {
+                Spacer()
+
+                Button {
+                    settings.addFolderClassificationRule()
+                } label: {
+                    Label("新增规则", systemImage: "plus")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 11)
+                        .background(
+                            Capsule()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color(red: 0.22, green: 0.49, blue: 1.00),
+                                            Color(red: 0.14, green: 0.39, blue: 0.94),
+                                        ],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        )
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                        }
+                        .shadow(color: Color(red: 0.14, green: 0.39, blue: 0.94).opacity(0.35), radius: 12, y: 6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("新增规则")
+
+                Spacer()
+            }
+            .padding(.top, 4)
         }
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(FolderClassificationPalette.sectionBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+        }
     }
 
     private var testSection: some View {
@@ -805,13 +859,19 @@ private struct FolderClassificationRuleRow: View {
     let onMoveDown: () -> Void
     let onDelete: () -> Void
 
+    private let helperTextFont = Font.system(size: 13, weight: .regular)
+    private let helperTextColor = Color.white.opacity(0.8)
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                FolderClassificationBadge(text: "规则 \(index + 1)")
+                FolderClassificationBadge(text: "规则 \(index + 1)", style: .softGreen)
 
                 Toggle("启用这条规则", isOn: $rule.isEnabled)
                     .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(FolderClassificationPalette.primaryText)
 
                 Spacer()
 
@@ -819,71 +879,47 @@ private struct FolderClassificationRuleRow: View {
                     onMoveUp()
                 } label: {
                     Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(minWidth: 14, minHeight: 14)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(!canMoveUp)
 
                 Button {
                     onMoveDown()
                 } label: {
                     Image(systemName: "arrow.down")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(minWidth: 14, minHeight: 14)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(!canMoveDown)
 
                 Button(role: .destructive) {
                     onDelete()
                 } label: {
                     Image(systemName: "trash")
+                        .font(.system(size: 16, weight: .medium))
+                        .frame(minWidth: 14, minHeight: 14)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
             }
 
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("当原始文件夹名里包含")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextField("例如 pok", text: $rule.keyword)
-                        .textFieldStyle(.roundedBorder)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            FolderClassificationRuleSentenceEditor(
+                keyword: $rule.keyword,
+                targetFolderName: $rule.targetFolderName
+            )
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("就把视频放到这个子文件夹")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextField("例如 Pocket 或 Pocket/Final", text: $rule.targetFolderName)
-                        .textFieldStyle(.roundedBorder)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if rule.isConfigured {
-                    Text("效果预览")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text("如果文件夹名里包含“\(rule.keyword)”，视频会自动进入“\(rule.normalizedTargetFolderPath)”。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("把上面两项都填好后，这条规则才会生效。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(FolderClassificationPalette.cardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
         }
     }
 }
@@ -1019,10 +1055,90 @@ private struct FolderClassificationSettingCard<Content: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.opacity(0.38), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(FolderClassificationPalette.cardBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct FolderClassificationOverviewStepCard<Accessory: View>: View {
+    let badgeText: String
+    let title: String
+    let panelTitle: String?
+    let panelDetail: String?
+    @ViewBuilder let accessory: Accessory
+
+    private let panelTextFont = Font.system(size: 15, weight: .regular)
+    private let panelTextColor = Color.white.opacity(0.6)
+    private let cardHorizontalPadding: CGFloat = 18
+    private let cardVerticalPadding: CGFloat = 18
+
+    private var normalizedPanelTitle: String? {
+        guard let panelTitle else { return nil }
+        let trimmed = panelTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var normalizedPanelDetail: String? {
+        guard let panelDetail else { return nil }
+        let trimmed = panelDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private var panelTextSpacing: CGFloat {
+        normalizedPanelTitle != nil && normalizedPanelDetail != nil ? 8 : 0
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
+                HStack(alignment: .center, spacing: 12) {
+                    FolderClassificationBadge(text: badgeText)
+
+                    Text(title)
+                        .font(FolderClassificationTypography.sectionTitleFont)
+                        .foregroundStyle(FolderClassificationPalette.primaryText)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.92)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .layoutPriority(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                accessory
+                    .fixedSize()
+                    .frame(alignment: .topTrailing)
+            }
+
+            VStack(alignment: .leading, spacing: panelTextSpacing) {
+                if let normalizedPanelTitle {
+                    Text(normalizedPanelTitle)
+                        .font(panelTextFont)
+                        .foregroundStyle(panelTextColor)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+
+                if let normalizedPanelDetail {
+                    Text(normalizedPanelDetail)
+                        .font(panelTextFont)
+                        .foregroundStyle(panelTextColor)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, cardHorizontalPadding)
+        .padding(.vertical, cardVerticalPadding)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(FolderClassificationPalette.cardBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
         }
     }
 }
@@ -1036,21 +1152,124 @@ private struct FolderClassificationSectionTitle: View {
             FolderClassificationBadge(text: badgeText)
 
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(FolderClassificationTypography.sectionTitleFont)
+                .foregroundStyle(FolderClassificationPalette.primaryText)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
 
+private enum FolderClassificationTypography {
+    static let sectionTitleFont = Font.system(size: 18, weight: .bold)
+}
+
 private struct FolderClassificationBadge: View {
+    enum Style {
+        case accent
+        case softGreen
+
+        var fill: Color {
+            switch self {
+            case .accent:
+                return FolderClassificationPalette.accentFill
+            case .softGreen:
+                return FolderClassificationPalette.softGreenBadgeFill
+            }
+        }
+
+        var border: Color {
+            switch self {
+            case .accent:
+                return FolderClassificationPalette.accentBorder
+            case .softGreen:
+                return FolderClassificationPalette.softGreenBadgeBorder
+            }
+        }
+    }
+
     let text: String
+    var style: Style = .accent
 
     var body: some View {
         Text(text)
-            .font(.caption.weight(.bold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.blue.opacity(0.16), in: Capsule())
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(FolderClassificationPalette.primaryText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(style.fill, in: Capsule())
+            .overlay {
+                Capsule()
+                    .strokeBorder(style.border, lineWidth: 1)
+            }
     }
+}
+
+private struct FolderClassificationRuleSentenceEditor: View {
+    @Binding var keyword: String
+    @Binding var targetFolderName: String
+
+    private let helperTextFont = Font.system(size: 13, weight: .regular)
+    private let helperTextColor = Color.white.opacity(0.8)
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("当原文件夹名包含")
+
+            FolderClassificationInlineTextField(
+                placeholder: "关键词",
+                text: $keyword,
+                width: 96
+            )
+
+            Text("时，就导入到目标文件夹中的")
+
+            FolderClassificationInlineTextField(
+                placeholder: "子文件夹",
+                text: $targetFolderName,
+                width: 132
+            )
+
+            Text("子文件夹")
+        }
+        .font(helperTextFont)
+        .foregroundStyle(helperTextColor)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct FolderClassificationInlineTextField: View {
+    let placeholder: String
+    @Binding var text: String
+    let width: CGFloat
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(FolderClassificationPalette.primaryText)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .frame(width: width)
+            .background(FolderClassificationPalette.panelBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+            }
+    }
+}
+
+private enum FolderClassificationPalette {
+    static let windowBackground = Color(red: 0.18, green: 0.16, blue: 0.14)
+    static let sectionBackground = Color.white.opacity(0.04)
+    static let cardBackground = Color.white.opacity(0.035)
+    static let panelBackground = Color.white.opacity(0.05)
+    static let border = Color.white.opacity(0.08)
+    static let accentFill = Color(red: 0.19, green: 0.40, blue: 0.78).opacity(0.34)
+    static let accentBorder = Color(red: 0.28, green: 0.55, blue: 1.00).opacity(0.45)
+    static let softGreenBadgeFill = Color(red: 0.49, green: 0.83, blue: 0.62).opacity(0.28)
+    static let softGreenBadgeBorder = Color(red: 0.62, green: 0.93, blue: 0.73).opacity(0.48)
+    static let primaryText = Color.white.opacity(0.95)
+    static let secondaryText = Color.white.opacity(0.58)
 }
 
 private struct MenuContentHeightPreferenceKey: PreferenceKey {
@@ -1435,15 +1654,23 @@ private struct VolumeCard: View {
     }
 
     private func summaryMetricColumn(symbol: String, value: Int) -> some View {
-        HStack(alignment: .center, spacing: 4) {
+        let metricColor: Color =
+            symbol == "checkmark.circle.fill"
+                ? Color(red: 0.38, green: 0.86, blue: 0.52)
+                : symbol == "arrow.down.circle.fill"
+                    ? Color(red: 0.98, green: 0.82, blue: 0.24)
+                    : .white.opacity(0.82)
+
+        return HStack(alignment: .center, spacing: 4) {
             Text("\(value)")
                 .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                .foregroundStyle(metricColor)
             Image(systemName: symbol)
                 .symbolRenderingMode(.monochrome)
                 .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(metricColor)
                 .offset(y: -1)
         }
-        .foregroundStyle(.white.opacity(0.82))
         .lineLimit(1)
         .minimumScaleFactor(0.9)
         .allowsTightening(true)
@@ -1466,6 +1693,7 @@ private struct VolumeCard: View {
     }
 
     private static let formatSummaryUIFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
+    private let collapsedCapacityChipTriggerInset: CGFloat = 10
 
     private var formatSummaryFormatNameText: String {
         volume.formatDescription
@@ -1580,7 +1808,10 @@ private struct VolumeCard: View {
             capacityChipBackground
         }
         .clipShape(Capsule())
-        .contentShape(Capsule())
+        .contentShape(
+            Capsule()
+                .inset(by: isHoveringCapacityChip ? 0 : collapsedCapacityChipTriggerInset)
+        )
         .animation(capacityChipAnimation, value: isHoveringCapacityChip)
         .onHover { hovering in
             isHoveringCapacityChip = hovering
@@ -2792,6 +3023,61 @@ private struct VolumeCardsPreviewHost: View {
     }
 }
 
+private struct FolderClassificationRulesPreviewHost: View {
+    @StateObject private var settings: AppSettings
+
+    private let previewWidth: CGFloat = 820
+    private let previewHeight: CGFloat = 620
+
+    init(settings: AppSettings) {
+        _settings = StateObject(wrappedValue: settings)
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.11, green: 0.12, blue: 0.14),
+                    Color(red: 0.16, green: 0.14, blue: 0.12),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(FolderClassificationPalette.windowBackground)
+                    .shadow(color: .black.opacity(0.34), radius: 28, y: 16)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    }
+
+                FolderClassificationRulesView(onDone: {})
+                    .environmentObject(settings)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color(red: 1.00, green: 0.37, blue: 0.33))
+                    Circle()
+                        .fill(Color(red: 1.00, green: 0.74, blue: 0.18))
+                    Circle()
+                        .fill(Color(red: 0.16, green: 0.82, blue: 0.35))
+                }
+                .frame(height: 12)
+                .padding(.top, 14)
+                .padding(.leading, 14)
+            }
+            .frame(width: 788, height: 580)
+        }
+        .frame(width: previewWidth, height: previewHeight)
+        .previewLayout(.fixed(width: previewWidth, height: previewHeight))
+    }
+}
+
 struct MenuContentView_Previews: PreviewProvider {
     private static let previewVolumes = [
         MountedVolume(
@@ -2826,8 +3112,31 @@ struct MenuContentView_Previews: PreviewProvider {
         "preview-volume-red": VolumeMediaSummary(photoCount: 42, videoCount: 6),
     ]
 
+    private static let previewFolderClassificationRules = [
+        FolderClassificationRule(
+            keyword: "pok",
+            targetFolderName: "Pocket",
+            isEnabled: true
+        ),
+        FolderClassificationRule(
+            keyword: "act",
+            targetFolderName: "Action",
+            isEnabled: true
+        ),
+    ]
+
     static var previews: some View {
         Group {
+            FolderClassificationRulesPreviewHost(
+                settings: AppSettings(
+                    previewDestinationFolderPath: "/Users/kang/Desktop/测试 mac",
+                    autoImportEnabled: false,
+                    previewFolderClassificationEnabled: true,
+                    previewFolderClassificationRules: previewFolderClassificationRules
+                )
+            )
+            .previewDisplayName("Folder Classification Rules")
+
             MenuContentPreviewHost(
                 diskMonitor: DiskMonitor(previewVolumes: []),
                 settings: AppSettings(previewDestinationFolderPath: "", autoImportEnabled: false),

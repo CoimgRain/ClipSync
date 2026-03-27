@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		124217B6B05D1E2466FAC6DF /* MediaImporterMenuBarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */; };
 		22BB427C18ECBD89FDC7868F /* AutoImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE683024F5A750C3B50711F6 /* AutoImportCoordinator.swift */; };
+		4B02F1FCE98A4DB2A95F04E4 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3D9A2B60B8E74E709C8E15D3 /* AppIcon.icns */; };
 			606F7D8FFFCE7AF6B2DB2901 /* MenuBarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */; };
 			70C789396A417843F5DEE15A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99957929BDFBD43FBA3A9D1F /* Cocoa.framework */; };
 			895BFF30E6634C4BB3048B35 /* StatusBarController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B7C0B8F6AA8468BABDC7C32 /* StatusBarController.swift */; };
@@ -20,6 +21,7 @@
 /* Begin PBXFileReference section */
 			20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MenuBarViews.swift; path = MediaImporterMenuBar/MenuBarViews.swift; sourceTree = "<group>"; };
 			31FEF25D46BAC64648F15A74 /* MediaImporterMenuBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaImporterMenuBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+			3D9A2B60B8E74E709C8E15D3 /* AppIcon.icns */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 			3B7C0B8F6AA8468BABDC7C32 /* StatusBarController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = StatusBarController.swift; path = MediaImporterMenuBar/StatusBarController.swift; sourceTree = "<group>"; };
 			364BEF31982B41F0AC2083E1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 			74CA0D56684539B94E4503FF /* DiskMonitor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DiskMonitor.swift; path = MediaImporterMenuBar/DiskMonitor.swift; sourceTree = "<group>"; };
@@ -53,6 +55,7 @@
 		15E75B590BD058F02169194C /* App */ = {
 			isa = PBXGroup;
 			children = (
+				3D9A2B60B8E74E709C8E15D3 /* AppIcon.icns */,
 				364BEF31982B41F0AC2083E1 /* Info.plist */,
 			);
 			name = App;
@@ -154,6 +157,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4B02F1FCE98A4DB2A95F04E4 /* AppIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
