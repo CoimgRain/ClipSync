@@ -124,6 +124,186 @@ private struct FolderClassificationExportPayload: Codable {
     let rules: [FolderClassificationRule]
 }
 
+enum RemovableVolumeAccessStore {
+    nonisolated(unsafe) private static let defaults = UserDefaults.standard
+    private static let bookmarkStoreKey = "removableVolumeBookmarks"
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var activeSessions: [String: ActiveRemovableVolumeSession] = [:]
+
+    static func withAccess<T>(
+        to url: URL,
+        _ body: (URL) throws -> T
+    ) rethrows -> T {
+        let access = beginAccess(to: url)
+        defer {
+            access.stop()
+        }
+
+        return try body(access.url)
+    }
+
+    static func withAccess<T>(
+        to url: URL,
+        _ body: (URL) async throws -> T
+    ) async rethrows -> T {
+        let access = beginAccess(to: url)
+        defer {
+            access.stop()
+        }
+
+        return try await body(access.url)
+    }
+
+    private static func beginAccess(to originalURL: URL) -> RemovableVolumeAccess {
+        let standardizedURL = originalURL.standardizedFileURL
+        let key = standardizedURL.path
+
+        lock.lock()
+        if let session = activeSessions[key] {
+            session.referenceCount += 1
+            let url = session.url
+            lock.unlock()
+            return RemovableVolumeAccess(url: url) {
+                endAccess(forKey: key)
+            }
+        }
+        lock.unlock()
+
+        let resolvedURL = resolvedBookmarkedURL(for: standardizedURL) ?? standardizedURL
+        let didStartAccessing = resolvedURL.startAccessingSecurityScopedResource()
+        persistBookmarkIfPossible(for: resolvedURL)
+
+        let newSession = ActiveRemovableVolumeSession(
+            url: resolvedURL,
+            shouldStopAccessing: didStartAccessing
+        )
+
+        lock.lock()
+        if let existingSession = activeSessions[key] {
+            existingSession.referenceCount += 1
+            let url = existingSession.url
+            lock.unlock()
+
+            if didStartAccessing {
+                resolvedURL.stopAccessingSecurityScopedResource()
+            }
+
+            return RemovableVolumeAccess(url: url) {
+                endAccess(forKey: key)
+            }
+        }
+
+        activeSessions[key] = newSession
+        lock.unlock()
+
+        return RemovableVolumeAccess(url: resolvedURL) {
+            endAccess(forKey: key)
+        }
+    }
+
+    private static func endAccess(forKey key: String) {
+        let sessionToClose: ActiveRemovableVolumeSession?
+
+        lock.lock()
+        if let session = activeSessions[key] {
+            session.referenceCount -= 1
+            if session.referenceCount <= 0 {
+                activeSessions.removeValue(forKey: key)
+                sessionToClose = session
+            } else {
+                sessionToClose = nil
+            }
+        } else {
+            sessionToClose = nil
+        }
+        lock.unlock()
+
+        guard let sessionToClose, sessionToClose.shouldStopAccessing else { return }
+        sessionToClose.url.stopAccessingSecurityScopedResource()
+    }
+
+    private static func resolvedBookmarkedURL(for fallbackURL: URL) -> URL? {
+        guard let bookmarkData = storedBookmarks[fallbackURL.path] else {
+            return nil
+        }
+
+        do {
+            var isStale = false
+            let resolvedURL = try URL(
+                resolvingBookmarkData: bookmarkData,
+                options: [.withSecurityScope],
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            )
+
+            if isStale {
+                persistBookmarkIfPossible(for: resolvedURL)
+            }
+
+            return resolvedURL
+        } catch {
+            removeBookmark(forKey: fallbackURL.path)
+            return nil
+        }
+    }
+
+    private static func persistBookmarkIfPossible(for url: URL) {
+        do {
+            let bookmark = try url.bookmarkData(
+                options: [.withSecurityScope],
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            )
+            saveBookmark(bookmark, forKey: url.standardizedFileURL.path)
+        } catch {
+            // 外接卷 bookmark 持久化失败时，至少保留本次 access session，避免同一轮任务继续连弹。
+        }
+    }
+
+    private static var storedBookmarks: [String: Data] {
+        lock.lock()
+        defer { lock.unlock() }
+        return defaults.dictionary(forKey: bookmarkStoreKey) as? [String: Data] ?? [:]
+    }
+
+    private static func saveBookmark(_ bookmark: Data, forKey key: String) {
+        lock.lock()
+        var bookmarks = defaults.dictionary(forKey: bookmarkStoreKey) as? [String: Data] ?? [:]
+        bookmarks[key] = bookmark
+        defaults.set(bookmarks, forKey: bookmarkStoreKey)
+        lock.unlock()
+    }
+
+    private static func removeBookmark(forKey key: String) {
+        lock.lock()
+        var bookmarks = defaults.dictionary(forKey: bookmarkStoreKey) as? [String: Data] ?? [:]
+        bookmarks.removeValue(forKey: key)
+        defaults.set(bookmarks, forKey: bookmarkStoreKey)
+        lock.unlock()
+    }
+
+    private final class ActiveRemovableVolumeSession {
+        let url: URL
+        let shouldStopAccessing: Bool
+        var referenceCount: Int
+
+        init(url: URL, shouldStopAccessing: Bool, referenceCount: Int = 1) {
+            self.url = url
+            self.shouldStopAccessing = shouldStopAccessing
+            self.referenceCount = referenceCount
+        }
+    }
+
+    private struct RemovableVolumeAccess {
+        let url: URL
+        let stopHandler: () -> Void
+
+        func stop() {
+            stopHandler()
+        }
+    }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     // 这里保留一个可读的 path，主要用于 UI 显示和兼容旧配置。

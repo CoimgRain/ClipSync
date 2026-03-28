@@ -225,22 +225,10 @@ final class DiskMonitor: ObservableObject {
 
         var updatedSummaries: [String: VolumeMediaSummary] = [:]
 
-        await withTaskGroup(of: (String, VolumeMediaSummary)?.self) { group in
-            for volume in volumes {
-                group.addTask {
-                    if Task.isCancelled {
-                        return nil
-                    }
-
-                    let summary = Self.scanMediaSummary(at: volume.url, existingNameIndex: existingNameIndex)
-                    return (volume.id, summary)
-                }
-            }
-
-            for await result in group {
-                guard let (volumeID, summary) = result else { continue }
-                updatedSummaries[volumeID] = summary
-            }
+        for volume in volumes {
+            guard !Task.isCancelled else { return }
+            let summary = Self.scanMediaSummary(at: volume.url, existingNameIndex: existingNameIndex)
+            updatedSummaries[volume.id] = summary
         }
 
         guard !Task.isCancelled else { return }
@@ -253,50 +241,52 @@ final class DiskMonitor: ObservableObject {
         at rootURL: URL,
         existingNameIndex: ExistingMediaNameIndex
     ) -> VolumeMediaSummary {
-        let fileManager = FileManager.default
-        let enumerator = fileManager.enumerator(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
-        )
+        RemovableVolumeAccessStore.withAccess(to: rootURL) { accessibleRootURL in
+            let fileManager = FileManager.default
+            let enumerator = fileManager.enumerator(
+                at: accessibleRootURL,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            )
 
-        var photoCount = 0
-        var videoCount = 0
-        var importedPhotoCount = 0
-        var importedVideoCount = 0
+            var photoCount = 0
+            var videoCount = 0
+            var importedPhotoCount = 0
+            var importedVideoCount = 0
 
-        while let fileURL = enumerator?.nextObject() as? URL {
-            if Task.isCancelled {
-                break
-            }
-
-            guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey]),
-                  values.isDirectory != true else {
-                continue
-            }
-
-            let fileExtension = fileURL.pathExtension.lowercased()
-            switch MediaCatalogSupport.kind(forNormalizedExtension: fileExtension) {
-            case .photo:
-                photoCount += 1
-                if existingNameIndex.contains(fileURL.lastPathComponent, kind: .photo) {
-                    importedPhotoCount += 1
+            while let fileURL = enumerator?.nextObject() as? URL {
+                if Task.isCancelled {
+                    break
                 }
-            case .video:
-                videoCount += 1
-                if existingNameIndex.contains(fileURL.lastPathComponent, kind: .video) {
-                    importedVideoCount += 1
+
+                guard let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey]),
+                      values.isDirectory != true else {
+                    continue
                 }
-            case nil:
-                break
+
+                let fileExtension = fileURL.pathExtension.lowercased()
+                switch MediaCatalogSupport.kind(forNormalizedExtension: fileExtension) {
+                case .photo:
+                    photoCount += 1
+                    if existingNameIndex.contains(fileURL.lastPathComponent, kind: .photo) {
+                        importedPhotoCount += 1
+                    }
+                case .video:
+                    videoCount += 1
+                    if existingNameIndex.contains(fileURL.lastPathComponent, kind: .video) {
+                        importedVideoCount += 1
+                    }
+                case nil:
+                    break
+                }
             }
+
+            return VolumeMediaSummary(
+                photoCount: photoCount,
+                videoCount: videoCount,
+                importedPhotoCount: importedPhotoCount,
+                importedVideoCount: importedVideoCount
+            )
         }
-
-        return VolumeMediaSummary(
-            photoCount: photoCount,
-            videoCount: videoCount,
-            importedPhotoCount: importedPhotoCount,
-            importedVideoCount: importedVideoCount
-        )
     }
 }

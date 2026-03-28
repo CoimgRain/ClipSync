@@ -280,6 +280,8 @@ struct MenuContentView: View {
     }
 
     private func refreshMediaSummaries() async {
+        guard !importer.isImporting else { return }
+
         guard !diskMonitor.removableVolumes.isEmpty else {
             await diskMonitor.rescanMediaSummaries(comparingAgainst: nil)
             return
@@ -1228,7 +1230,7 @@ private struct FolderClassificationRuleSentenceEditor: View {
             Text("时，就导入到目标文件夹中的")
 
             FolderClassificationInlineTextField(
-                placeholder: "子文件夹",
+                placeholder: "名称为",
                 text: $targetFolderName,
                 width: 132
             )

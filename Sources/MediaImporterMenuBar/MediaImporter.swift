@@ -454,130 +454,60 @@ private enum ImportWorker {
         classificationConfiguration: FolderClassificationConfiguration,
         onProgress: @escaping @Sendable (_ progress: MediaImporter.ImportProgressSnapshot) -> Void
     ) throws -> MediaImporter.ImportResult {
-        let fileManager = FileManager.default
-        let standardizedSourceRoot = sourceRoot.standardizedFileURL
-        let standardizedDestinationFolder = destinationFolder.standardizedFileURL
+        try RemovableVolumeAccessStore.withAccess(to: sourceRoot) { accessibleSourceRoot in
+            let fileManager = FileManager.default
+            let standardizedSourceRoot = accessibleSourceRoot.standardizedFileURL
+            let standardizedDestinationFolder = destinationFolder.standardizedFileURL
 
-        guard !MediaImporter.isSameOrDescendant(standardizedDestinationFolder, of: standardizedSourceRoot) else {
-            throw MediaImporter.ImportError.destinationInsideSourceVolume
-        }
+            guard !MediaImporter.isSameOrDescendant(standardizedDestinationFolder, of: standardizedSourceRoot) else {
+                throw MediaImporter.ImportError.destinationInsideSourceVolume
+            }
 
-        let mediaFiles = try collectMediaFiles(from: sourceRoot)
+            let mediaFiles = try collectMediaFiles(from: accessibleSourceRoot)
 
-        let existingNameIndex = MediaFileCatalog.buildExistingNameIndex(at: standardizedDestinationFolder)
+            let existingNameIndex = MediaFileCatalog.buildExistingNameIndex(at: standardizedDestinationFolder)
 
-        var pendingMediaFiles: [ImportableFile] = []
-        var skippedExistingPhotoCount = 0
-        var skippedExistingVideoCount = 0
-        var totalPhotoCount = 0
-        var totalVideoCount = 0
+            var pendingMediaFiles: [ImportableFile] = []
+            var skippedExistingPhotoCount = 0
+            var skippedExistingVideoCount = 0
+            var totalPhotoCount = 0
+            var totalVideoCount = 0
 
-        for file in mediaFiles {
-            if existingNameIndex.contains(file.url.lastPathComponent, kind: file.kind.mediaFileKind) {
-                switch file.kind {
-                case .photo:
-                    skippedExistingPhotoCount += 1
-                case .video:
-                    skippedExistingVideoCount += 1
+            for file in mediaFiles {
+                if existingNameIndex.contains(file.url.lastPathComponent, kind: file.kind.mediaFileKind) {
+                    switch file.kind {
+                    case .photo:
+                        skippedExistingPhotoCount += 1
+                    case .video:
+                        skippedExistingVideoCount += 1
+                    }
+                } else {
+                    pendingMediaFiles.append(file)
+                    switch file.kind {
+                    case .photo:
+                        totalPhotoCount += 1
+                    case .video:
+                        totalVideoCount += 1
+                    }
                 }
-            } else {
-                pendingMediaFiles.append(file)
-                switch file.kind {
-                case .photo:
-                    totalPhotoCount += 1
-                case .video:
-                    totalVideoCount += 1
-                }
             }
-        }
 
-        let skippedExistingCount = skippedExistingPhotoCount + skippedExistingVideoCount
-        let timestamp = makeImportFolderName()
-        let finalFolder = standardizedDestinationFolder
-            .appendingPathComponent(volumeName, isDirectory: true)
-            .appendingPathComponent(timestamp, isDirectory: true)
+            let skippedExistingCount = skippedExistingPhotoCount + skippedExistingVideoCount
+            let timestamp = makeImportFolderName()
+            let finalFolder = standardizedDestinationFolder
+                .appendingPathComponent(volumeName, isDirectory: true)
+                .appendingPathComponent(timestamp, isDirectory: true)
 
-        let totalBytes = pendingMediaFiles.reduce(into: Int64(0)) { partialResult, file in
-            partialResult += file.size
-        }
-        let pendingPhotoCount = totalPhotoCount
-        let pendingVideoCount = totalVideoCount
-        var importedBytes: Int64 = 0
-        var copiedCount = 0
-        var importedPhotoCount = 0
-        var importedVideoCount = 0
-        var classificationLogs: [FolderClassificationLogEntry] = []
-        onProgress(
-            MediaImporter.ImportProgressSnapshot(
-                importedBytes: importedBytes,
-                totalBytes: totalBytes,
-                importedPhotoCount: importedPhotoCount,
-                totalPhotoCount: pendingPhotoCount,
-                importedVideoCount: importedVideoCount,
-                totalVideoCount: pendingVideoCount
-            )
-        )
-
-        guard !pendingMediaFiles.isEmpty else {
-            return MediaImporter.ImportResult(
-                copiedCount: 0,
-                skippedExistingCount: skippedExistingCount,
-                destinationFolderName: finalFolder.lastPathComponent,
-                classificationLogs: []
-            )
-        }
-
-        try fileManager.createDirectory(at: finalFolder, withIntermediateDirectories: true)
-
-        for file in pendingMediaFiles {
-            try Task.checkCancellation()
-            let matchedRule = file.kind == .video
-                ? classificationConfiguration.matchingRule(for: file.sourceFolderName)
-                : nil
-            let targetFolder = matchedRule.map {
-                standardizedDestinationFolder.appendingPathComponent($0.normalizedTargetFolderPath, isDirectory: true)
-            } ?? finalFolder
-            try fileManager.createDirectory(at: targetFolder, withIntermediateDirectories: true)
-            let uniqueTarget = try resolvedDestinationURL(
-                for: file.url.lastPathComponent,
-                in: targetFolder,
-                strategy: classificationConfiguration.conflictStrategy,
-                fileManager: fileManager
-            )
-            let baseImportedBytes = importedBytes
-            let currentImportedPhotoCount = importedPhotoCount
-            let currentImportedVideoCount = importedVideoCount
-            try copyFileInChunks(from: file.url, to: uniqueTarget) { copiedBytesForFile in
-                onProgress(
-                    MediaImporter.ImportProgressSnapshot(
-                        importedBytes: baseImportedBytes + copiedBytesForFile,
-                        totalBytes: totalBytes,
-                        importedPhotoCount: currentImportedPhotoCount,
-                        totalPhotoCount: pendingPhotoCount,
-                        importedVideoCount: currentImportedVideoCount,
-                        totalVideoCount: pendingVideoCount
-                    )
-                )
+            let totalBytes = pendingMediaFiles.reduce(into: Int64(0)) { partialResult, file in
+                partialResult += file.size
             }
-            copiedCount += 1
-            importedBytes += file.size
-            switch file.kind {
-            case .photo:
-                importedPhotoCount += 1
-            case .video:
-                importedVideoCount += 1
-            }
-            classificationLogs.append(
-                FolderClassificationLogEntry(
-                    fileName: file.url.lastPathComponent,
-                    sourceFolderName: file.sourceFolderName,
-                    destinationSubpath: relativeDisplayPath(for: uniqueTarget, root: standardizedDestinationFolder),
-                    ruleKeyword: matchedRule?.keyword,
-                    ruleTargetFolderName: matchedRule?.normalizedTargetFolderPath,
-                    didMatchRule: matchedRule != nil,
-                    conflictStrategy: classificationConfiguration.conflictStrategy
-                )
-            )
+            let pendingPhotoCount = totalPhotoCount
+            let pendingVideoCount = totalVideoCount
+            var importedBytes: Int64 = 0
+            var copiedCount = 0
+            var importedPhotoCount = 0
+            var importedVideoCount = 0
+            var classificationLogs: [FolderClassificationLogEntry] = []
             onProgress(
                 MediaImporter.ImportProgressSnapshot(
                     importedBytes: importedBytes,
@@ -588,14 +518,86 @@ private enum ImportWorker {
                     totalVideoCount: pendingVideoCount
                 )
             )
-        }
 
-        return MediaImporter.ImportResult(
-            copiedCount: copiedCount,
-            skippedExistingCount: skippedExistingCount,
-            destinationFolderName: finalFolder.lastPathComponent,
-            classificationLogs: classificationLogs
-        )
+            guard !pendingMediaFiles.isEmpty else {
+                return MediaImporter.ImportResult(
+                    copiedCount: 0,
+                    skippedExistingCount: skippedExistingCount,
+                    destinationFolderName: finalFolder.lastPathComponent,
+                    classificationLogs: []
+                )
+            }
+
+            try fileManager.createDirectory(at: finalFolder, withIntermediateDirectories: true)
+
+            for file in pendingMediaFiles {
+                try Task.checkCancellation()
+                let matchedRule = file.kind == .video
+                    ? classificationConfiguration.matchingRule(for: file.sourceFolderName)
+                    : nil
+                let targetFolder = matchedRule.map {
+                    standardizedDestinationFolder.appendingPathComponent($0.normalizedTargetFolderPath, isDirectory: true)
+                } ?? finalFolder
+                try fileManager.createDirectory(at: targetFolder, withIntermediateDirectories: true)
+                let uniqueTarget = try resolvedDestinationURL(
+                    for: file.url.lastPathComponent,
+                    in: targetFolder,
+                    strategy: classificationConfiguration.conflictStrategy,
+                    fileManager: fileManager
+                )
+                let baseImportedBytes = importedBytes
+                let currentImportedPhotoCount = importedPhotoCount
+                let currentImportedVideoCount = importedVideoCount
+                try copyFileInChunks(from: file.url, to: uniqueTarget) { copiedBytesForFile in
+                    onProgress(
+                        MediaImporter.ImportProgressSnapshot(
+                            importedBytes: baseImportedBytes + copiedBytesForFile,
+                            totalBytes: totalBytes,
+                            importedPhotoCount: currentImportedPhotoCount,
+                            totalPhotoCount: pendingPhotoCount,
+                            importedVideoCount: currentImportedVideoCount,
+                            totalVideoCount: pendingVideoCount
+                        )
+                    )
+                }
+                copiedCount += 1
+                importedBytes += file.size
+                switch file.kind {
+                case .photo:
+                    importedPhotoCount += 1
+                case .video:
+                    importedVideoCount += 1
+                }
+                classificationLogs.append(
+                    FolderClassificationLogEntry(
+                        fileName: file.url.lastPathComponent,
+                        sourceFolderName: file.sourceFolderName,
+                        destinationSubpath: relativeDisplayPath(for: uniqueTarget, root: standardizedDestinationFolder),
+                        ruleKeyword: matchedRule?.keyword,
+                        ruleTargetFolderName: matchedRule?.normalizedTargetFolderPath,
+                        didMatchRule: matchedRule != nil,
+                        conflictStrategy: classificationConfiguration.conflictStrategy
+                    )
+                )
+                onProgress(
+                    MediaImporter.ImportProgressSnapshot(
+                        importedBytes: importedBytes,
+                        totalBytes: totalBytes,
+                        importedPhotoCount: importedPhotoCount,
+                        totalPhotoCount: pendingPhotoCount,
+                        importedVideoCount: importedVideoCount,
+                        totalVideoCount: pendingVideoCount
+                    )
+                )
+            }
+
+            return MediaImporter.ImportResult(
+                copiedCount: copiedCount,
+                skippedExistingCount: skippedExistingCount,
+                destinationFolderName: finalFolder.lastPathComponent,
+                classificationLogs: classificationLogs
+            )
+        }
     }
 
     private static func collectMediaFiles(
