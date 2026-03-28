@@ -98,260 +98,10 @@ final class MediaImporter: ObservableObject {
     @Published private(set) var importedVideoCount = 0
     @Published private(set) var totalVideoCount = 0
 
-    private var currentImportTask: Task<ImportResult, Error>?
-    private var progressRefreshTask: Task<Void, Never>?
+    @Published private(set) var activeImportStates: [String: VolumeImportState] = [:]
+
     private var statusResetTask: Task<Void, Never>?
-    private var importStartDate: Date?
-    private var lastProgressRevision: UInt64 = 0
-    private var lastProgressUpdateDate: Date?
-    private var lastSampledImportedBytes: Int64 = 0
-    private var smoothedBytesPerSecond: Double?
-
-    init() {}
-
-#if DEBUG
-    init(
-        previewIsImporting: Bool,
-        previewMessage: String,
-        previewProgress: Double?,
-        previewCurrentImportVolumeID: String?,
-        previewImportedBytes: Int64,
-        previewTotalImportBytes: Int64,
-        previewImportedPhotoCount: Int,
-        previewTotalPhotoCount: Int,
-        previewImportedVideoCount: Int,
-        previewTotalVideoCount: Int
-    ) {
-        self.isImporting = previewIsImporting
-        self.lastResultMessage = previewMessage
-        self.importProgress = previewProgress
-        self.currentImportVolumeID = previewCurrentImportVolumeID
-        self.importedBytes = previewImportedBytes
-        self.totalImportBytes = previewTotalImportBytes
-        self.importedPhotoCount = previewImportedPhotoCount
-        self.totalPhotoCount = previewTotalPhotoCount
-        self.importedVideoCount = previewImportedVideoCount
-        self.totalVideoCount = previewTotalVideoCount
-        if previewIsImporting, previewImportedBytes > 0, previewTotalImportBytes > previewImportedBytes {
-            self.importStartDate = Date().addingTimeInterval(-90)
-            self.lastProgressUpdateDate = Date()
-            self.lastSampledImportedBytes = previewImportedBytes
-            self.smoothedBytesPerSecond = Double(previewImportedBytes) / 90
-        }
-    }
-#endif
-
-    func importMedia(from volume: MountedVolume, to destinationFolder: URL, settings: AppSettings) async -> Bool {
-        guard !isImporting else { return false }
-        startImportSession(for: volume)
-        setPersistentStatusMessage("正在导入 \(volume.name)...")
-
-        defer {
-            resetImportSession()
-        }
-
-        do {
-            let classificationConfiguration = settings.folderClassificationConfiguration
-            let progressBuffer = ImportProgressBuffer()
-            startProgressRefresh(using: progressBuffer, volumeName: volume.name)
-            let task = Task.detached(priority: .userInitiated) { [volume, destinationFolder] in
-                try ImportWorker.copyMediaFiles(
-                    from: volume.url,
-                    to: destinationFolder,
-                    volumeName: volume.name,
-                    classificationConfiguration: classificationConfiguration
-                ) { progress in
-                    progressBuffer.store(progress)
-                }
-            }
-            currentImportTask = task
-            let result = try await task.value
-            applyBufferedProgress(from: progressBuffer, volumeName: volume.name, force: true)
-            progressRefreshTask?.cancel()
-            progressRefreshTask = nil
-            settings.appendClassificationLogs(result.classificationLogs)
-
-            if result.copiedCount == 0 {
-                if result.skippedExistingCount > 0 {
-                    setStatusMessage(
-                        "已跳过 \(result.skippedExistingCount) 个已导入文件",
-                        autoDismissAfter: 3.6
-                    )
-                } else {
-                    setStatusMessage("\(volume.name) 中没有找到可导入的媒体文件", autoDismissAfter: 3.6)
-                }
-            } else {
-                if result.skippedExistingCount > 0 {
-                    setStatusMessage(
-                        "已导入 \(result.copiedCount) 个文件，跳过 \(result.skippedExistingCount) 个已导入文件",
-                        autoDismissAfter: 3.8
-                    )
-                } else {
-                    setStatusMessage("已导入 \(result.copiedCount) 个文件到 \(result.destinationFolderName)", autoDismissAfter: 3.6)
-                }
-            }
-            return true
-        } catch is CancellationError {
-            setStatusMessage("已取消导入", autoDismissAfter: 2.8)
-            return false
-        } catch {
-            setStatusMessage("导入失败：\(error.localizedDescription)", autoDismissAfter: 4.2)
-            return false
-        }
-    }
-
-    func cancelImport() {
-        currentImportTask?.cancel()
-        setPersistentStatusMessage("正在取消导入...")
-    }
-
-    func setStatusMessage(_ message: String) {
-        setStatusMessage(message, autoDismissAfter: 3.2)
-    }
-
-    func setStatusMessage(_ message: String, autoDismissAfter delay: TimeInterval) {
-        lastResultMessage = message
-        scheduleStatusReset(after: delay, expectedMessage: message)
-    }
-
-    var importRemainingTimeText: String? {
-        guard totalImportBytes > 0,
-              importedBytes > 0,
-              let importStartDate else {
-            return nil
-        }
-
-        let elapsed = Date().timeIntervalSince(importStartDate)
-        guard elapsed > 0.2 else { return nil }
-
-        let fallbackBytesPerSecond = Double(importedBytes) / elapsed
-        let bytesPerSecond = smoothedBytesPerSecond ?? fallbackBytesPerSecond
-        guard bytesPerSecond > 0 else { return nil }
-
-        let remainingBytes = max(0, totalImportBytes - importedBytes)
-        let remainingSeconds = Double(remainingBytes) / bytesPerSecond
-
-        return Self.remainingTimeText(remainingSeconds)
-    }
-
-    var importProgressDetailText: String? {
-        guard totalImportBytes > 0 else { return nil }
-        return "\(Self.progressByteText(importedBytes)) / \(Self.progressByteText(totalImportBytes))"
-    }
-
-    private func startProgressRefresh(using progressBuffer: ImportProgressBuffer, volumeName: String) {
-        progressRefreshTask?.cancel()
-        progressRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            while !Task.isCancelled {
-                self.applyBufferedProgress(from: progressBuffer, volumeName: volumeName)
-                try? await Task.sleep(nanoseconds: 200_000_000)
-            }
-        }
-    }
-
-    private func applyBufferedProgress(
-        from progressBuffer: ImportProgressBuffer,
-        volumeName: String,
-        force: Bool = false
-    ) {
-        let (snapshot, revision) = progressBuffer.snapshot()
-        guard let snapshot else { return }
-        guard force || revision != lastProgressRevision else { return }
-
-        lastProgressRevision = revision
-        apply(snapshot: snapshot, volumeName: volumeName)
-    }
-
-    private func apply(snapshot: ImportProgressSnapshot, volumeName: String) {
-        let now = Date()
-
-        if let lastProgressUpdateDate,
-           snapshot.importedBytes > lastSampledImportedBytes {
-            let deltaSeconds = now.timeIntervalSince(lastProgressUpdateDate)
-            let deltaBytes = snapshot.importedBytes - lastSampledImportedBytes
-
-            if deltaSeconds > 0.03, deltaBytes > 0 {
-                let instantaneousSpeed = Double(deltaBytes) / deltaSeconds
-
-                if instantaneousSpeed.isFinite {
-                    if let smoothedBytesPerSecond {
-                        self.smoothedBytesPerSecond = (smoothedBytesPerSecond * 0.78) + (instantaneousSpeed * 0.22)
-                    } else {
-                        self.smoothedBytesPerSecond = instantaneousSpeed
-                    }
-                }
-            }
-        }
-
-        lastProgressUpdateDate = now
-        lastSampledImportedBytes = snapshot.importedBytes
-        importedBytes = snapshot.importedBytes
-        totalImportBytes = snapshot.totalBytes
-        importedPhotoCount = snapshot.importedPhotoCount
-        totalPhotoCount = snapshot.totalPhotoCount
-        importedVideoCount = snapshot.importedVideoCount
-        totalVideoCount = snapshot.totalVideoCount
-        importProgress = snapshot.totalBytes > 0 ? Double(snapshot.importedBytes) / Double(snapshot.totalBytes) : nil
-        setPersistentStatusMessage("正在导入 \(volumeName)...")
-    }
-
-    private func startImportSession(for volume: MountedVolume) {
-        statusResetTask?.cancel()
-        statusResetTask = nil
-        isImporting = true
-        currentImportVolumeID = volume.id
-        importProgress = 0
-        importedBytes = 0
-        totalImportBytes = 0
-        importedPhotoCount = 0
-        totalPhotoCount = 0
-        importedVideoCount = 0
-        totalVideoCount = 0
-        importStartDate = Date()
-        lastProgressRevision = 0
-        lastProgressUpdateDate = importStartDate
-        lastSampledImportedBytes = 0
-        smoothedBytesPerSecond = nil
-    }
-
-    private func resetImportSession() {
-        progressRefreshTask?.cancel()
-        progressRefreshTask = nil
-        isImporting = false
-        importProgress = nil
-        currentImportVolumeID = nil
-        importedBytes = 0
-        totalImportBytes = 0
-        importedPhotoCount = 0
-        totalPhotoCount = 0
-        importedVideoCount = 0
-        totalVideoCount = 0
-        importStartDate = nil
-        lastProgressRevision = 0
-        lastProgressUpdateDate = nil
-        lastSampledImportedBytes = 0
-        smoothedBytesPerSecond = nil
-        currentImportTask = nil
-    }
-
-    private func setPersistentStatusMessage(_ message: String) {
-        statusResetTask?.cancel()
-        statusResetTask = nil
-        lastResultMessage = message
-    }
-
-    private func scheduleStatusReset(after delay: TimeInterval, expectedMessage: String) {
-        statusResetTask?.cancel()
-        statusResetTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard let self, !Task.isCancelled else { return }
-            guard !self.isImporting, self.lastResultMessage == expectedMessage else { return }
-            self.lastResultMessage = "等待导入"
-            self.statusResetTask = nil
-        }
-    }
+    private var activeImportSessions: [String: ActiveImportSession] = [:]
 
     struct ImportResult: Sendable {
         let copiedCount: Int
@@ -369,6 +119,23 @@ final class MediaImporter: ObservableObject {
         let totalVideoCount: Int
     }
 
+    struct VolumeImportState: Sendable {
+        let volumeID: String
+        let volumeName: String
+        var progress: Double?
+        var importedBytes: Int64
+        var totalImportBytes: Int64
+        var importedPhotoCount: Int
+        var totalPhotoCount: Int
+        var importedVideoCount: Int
+        var totalVideoCount: Int
+        var importStartDate: Date?
+        var lastProgressRevision: UInt64
+        var lastProgressUpdateDate: Date?
+        var lastSampledImportedBytes: Int64
+        var smoothedBytesPerSecond: Double?
+    }
+
     enum ImportError: LocalizedError {
         case destinationInsideSourceVolume
 
@@ -377,6 +144,360 @@ final class MediaImporter: ObservableObject {
             case .destinationInsideSourceVolume:
                 return "导入目标文件夹不能位于正在导入的设备内部，请选择 Mac 本地磁盘上的文件夹。"
             }
+        }
+    }
+
+    private final class ActiveImportSession {
+        let volumeID: String
+        let progressBuffer = ImportProgressBuffer()
+        var state: VolumeImportState
+        var task: Task<ImportResult, Error>?
+        var progressRefreshTask: Task<Void, Never>?
+
+        init(state: VolumeImportState) {
+            self.volumeID = state.volumeID
+            self.state = state
+        }
+    }
+
+    init() {}
+
+#if DEBUG
+    init(
+        previewIsImporting: Bool,
+        previewMessage: String,
+        previewProgress: Double?,
+        previewCurrentImportVolumeID: String?,
+        previewImportedBytes: Int64,
+        previewTotalImportBytes: Int64,
+        previewImportedPhotoCount: Int,
+        previewTotalPhotoCount: Int,
+        previewImportedVideoCount: Int,
+        previewTotalVideoCount: Int
+    ) {
+        self.lastResultMessage = previewMessage
+
+        if previewIsImporting, let previewCurrentImportVolumeID {
+            let startDate = Date().addingTimeInterval(-90)
+            let previewState = VolumeImportState(
+                volumeID: previewCurrentImportVolumeID,
+                volumeName: "预览设备",
+                progress: previewProgress,
+                importedBytes: previewImportedBytes,
+                totalImportBytes: previewTotalImportBytes,
+                importedPhotoCount: previewImportedPhotoCount,
+                totalPhotoCount: previewTotalPhotoCount,
+                importedVideoCount: previewImportedVideoCount,
+                totalVideoCount: previewTotalVideoCount,
+                importStartDate: startDate,
+                lastProgressRevision: 0,
+                lastProgressUpdateDate: Date(),
+                lastSampledImportedBytes: previewImportedBytes,
+                smoothedBytesPerSecond: previewImportedBytes > 0 ? Double(previewImportedBytes) / 90 : nil
+            )
+            activeImportStates = [previewCurrentImportVolumeID: previewState]
+        }
+
+        refreshAggregateImportProperties()
+    }
+#endif
+
+    func importMedia(from volume: MountedVolume, to destinationFolder: URL, settings: AppSettings) async -> Bool {
+        guard activeImportSessions[volume.id] == nil else { return false }
+
+        let session = startImportSession(for: volume)
+
+        do {
+            let classificationConfiguration = settings.folderClassificationConfiguration
+            startProgressRefresh(for: volume.id)
+            let progressBuffer = session.progressBuffer
+            let task = Task.detached(priority: .userInitiated) { [volume, destinationFolder] in
+                try ImportWorker.copyMediaFiles(
+                    from: volume.url,
+                    to: destinationFolder,
+                    volumeName: volume.name,
+                    classificationConfiguration: classificationConfiguration
+                ) { progress in
+                    progressBuffer.store(progress)
+                }
+            }
+            session.task = task
+            let result = try await task.value
+            applyBufferedProgress(for: volume.id, force: true)
+            settings.appendClassificationLogs(result.classificationLogs)
+            finishImportSession(for: volume.id)
+
+            if result.copiedCount == 0 {
+                if result.skippedExistingCount > 0 {
+                    setStatusMessage(
+                        "\(volume.name)：已跳过 \(result.skippedExistingCount) 个已导入文件",
+                        autoDismissAfter: 3.6
+                    )
+                } else {
+                    setStatusMessage("\(volume.name) 中没有找到可导入的媒体文件", autoDismissAfter: 3.6)
+                }
+            } else {
+                if result.skippedExistingCount > 0 {
+                    setStatusMessage(
+                        "\(volume.name)：已导入 \(result.copiedCount) 个文件，跳过 \(result.skippedExistingCount) 个已导入文件",
+                        autoDismissAfter: 3.8
+                    )
+                } else {
+                    setStatusMessage("\(volume.name)：已导入 \(result.copiedCount) 个文件到 \(result.destinationFolderName)", autoDismissAfter: 3.6)
+                }
+            }
+            return true
+        } catch is CancellationError {
+            finishImportSession(for: volume.id)
+            setStatusMessage("\(volume.name) 已取消导入", autoDismissAfter: 2.8)
+            return false
+        } catch {
+            finishImportSession(for: volume.id)
+            setStatusMessage("导入失败：\(error.localizedDescription)", autoDismissAfter: 4.2)
+            return false
+        }
+    }
+
+    func cancelImport() {
+        guard let primaryImport = primaryActiveImportState else { return }
+        cancelImport(for: primaryImport.volumeID)
+    }
+
+    func cancelImport(for volumeID: String) {
+        guard let session = activeImportSessions[volumeID] else { return }
+        session.task?.cancel()
+        setPersistentStatusMessage("正在取消 \(session.state.volumeName)...")
+    }
+
+    func setStatusMessage(_ message: String) {
+        setStatusMessage(message, autoDismissAfter: 3.2)
+    }
+
+    func setStatusMessage(_ message: String, autoDismissAfter delay: TimeInterval) {
+        lastResultMessage = message
+        scheduleStatusReset(after: delay, expectedMessage: message)
+    }
+
+    var statusBannerMessage: String? {
+        if isImporting {
+            if activeImportStates.count == 1, let primaryImport = primaryActiveImportState {
+                return "正在导入 \(primaryImport.volumeName)..."
+            }
+
+            return "正在同时导入 \(activeImportStates.count) 个设备..."
+        }
+
+        return lastResultMessage == "等待导入" ? nil : lastResultMessage
+    }
+
+    var importRemainingTimeText: String? {
+        guard let primaryImport = primaryActiveImportState else { return nil }
+        return importRemainingTimeText(for: primaryImport.volumeID)
+    }
+
+    var importProgressDetailText: String? {
+        guard let primaryImport = primaryActiveImportState else { return nil }
+        return importProgressDetailText(for: primaryImport.volumeID)
+    }
+
+    func isImporting(volumeID: String) -> Bool {
+        activeImportStates[volumeID] != nil
+    }
+
+    func importState(for volumeID: String) -> VolumeImportState? {
+        activeImportStates[volumeID]
+    }
+
+    func importRemainingTimeText(for volumeID: String) -> String? {
+        guard let state = activeImportStates[volumeID],
+              state.totalImportBytes > 0,
+              state.importedBytes > 0,
+              let importStartDate = state.importStartDate else {
+            return nil
+        }
+
+        let elapsed = Date().timeIntervalSince(importStartDate)
+        guard elapsed > 0.2 else { return nil }
+
+        let fallbackBytesPerSecond = Double(state.importedBytes) / elapsed
+        let bytesPerSecond = state.smoothedBytesPerSecond ?? fallbackBytesPerSecond
+        guard bytesPerSecond > 0 else { return nil }
+
+        let remainingBytes = max(0, state.totalImportBytes - state.importedBytes)
+        let remainingSeconds = Double(remainingBytes) / bytesPerSecond
+
+        return Self.remainingTimeText(remainingSeconds)
+    }
+
+    func importProgressDetailText(for volumeID: String) -> String? {
+        guard let state = activeImportStates[volumeID],
+              state.totalImportBytes > 0 else {
+            return nil
+        }
+
+        return "\(Self.progressByteText(state.importedBytes)) / \(Self.progressByteText(state.totalImportBytes))"
+    }
+
+    private var primaryActiveImportState: VolumeImportState? {
+        activeImportStates.values.sorted { lhs, rhs in
+            let lhsDate = lhs.importStartDate ?? .distantFuture
+            let rhsDate = rhs.importStartDate ?? .distantFuture
+
+            if lhsDate != rhsDate {
+                return lhsDate < rhsDate
+            }
+
+            return lhs.volumeName.localizedStandardCompare(rhs.volumeName) == .orderedAscending
+        }.first
+    }
+
+    private func startProgressRefresh(for volumeID: String) {
+        guard let session = activeImportSessions[volumeID] else { return }
+
+        session.progressRefreshTask?.cancel()
+        session.progressRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            while !Task.isCancelled {
+                self.applyBufferedProgress(for: volumeID)
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+    }
+
+    private func applyBufferedProgress(for volumeID: String, force: Bool = false) {
+        guard let session = activeImportSessions[volumeID] else { return }
+
+        let (snapshot, revision) = session.progressBuffer.snapshot()
+        guard let snapshot else { return }
+        guard force || revision != session.state.lastProgressRevision else { return }
+
+        var state = session.state
+        state.lastProgressRevision = revision
+        apply(snapshot: snapshot, to: &state)
+        session.state = state
+        storeActiveImportState(state)
+        refreshAggregateImportProperties()
+    }
+
+    private func apply(snapshot: ImportProgressSnapshot, to state: inout VolumeImportState) {
+        let now = Date()
+
+        if let lastProgressUpdateDate = state.lastProgressUpdateDate,
+           snapshot.importedBytes > state.lastSampledImportedBytes {
+            let deltaSeconds = now.timeIntervalSince(lastProgressUpdateDate)
+            let deltaBytes = snapshot.importedBytes - state.lastSampledImportedBytes
+
+            if deltaSeconds > 0.03, deltaBytes > 0 {
+                let instantaneousSpeed = Double(deltaBytes) / deltaSeconds
+
+                if instantaneousSpeed.isFinite {
+                    if let smoothedBytesPerSecond = state.smoothedBytesPerSecond {
+                        state.smoothedBytesPerSecond = (smoothedBytesPerSecond * 0.78) + (instantaneousSpeed * 0.22)
+                    } else {
+                        state.smoothedBytesPerSecond = instantaneousSpeed
+                    }
+                }
+            }
+        }
+
+        state.lastProgressUpdateDate = now
+        state.lastSampledImportedBytes = snapshot.importedBytes
+        state.importedBytes = snapshot.importedBytes
+        state.totalImportBytes = snapshot.totalBytes
+        state.importedPhotoCount = snapshot.importedPhotoCount
+        state.totalPhotoCount = snapshot.totalPhotoCount
+        state.importedVideoCount = snapshot.importedVideoCount
+        state.totalVideoCount = snapshot.totalVideoCount
+        state.progress = snapshot.totalBytes > 0 ? Double(snapshot.importedBytes) / Double(snapshot.totalBytes) : nil
+    }
+
+    @discardableResult
+    private func startImportSession(for volume: MountedVolume) -> ActiveImportSession {
+        statusResetTask?.cancel()
+        statusResetTask = nil
+        let startDate = Date()
+        let state = VolumeImportState(
+            volumeID: volume.id,
+            volumeName: volume.name,
+            progress: 0,
+            importedBytes: 0,
+            totalImportBytes: 0,
+            importedPhotoCount: 0,
+            totalPhotoCount: 0,
+            importedVideoCount: 0,
+            totalVideoCount: 0,
+            importStartDate: startDate,
+            lastProgressRevision: 0,
+            lastProgressUpdateDate: startDate,
+            lastSampledImportedBytes: 0,
+            smoothedBytesPerSecond: nil
+        )
+        let session = ActiveImportSession(state: state)
+        activeImportSessions[volume.id] = session
+        storeActiveImportState(state)
+        refreshAggregateImportProperties()
+        return session
+    }
+
+    private func finishImportSession(for volumeID: String) {
+        let session = activeImportSessions.removeValue(forKey: volumeID)
+        session?.progressRefreshTask?.cancel()
+        removeActiveImportState(for: volumeID)
+        refreshAggregateImportProperties()
+    }
+
+    private func storeActiveImportState(_ state: VolumeImportState) {
+        var updatedStates = activeImportStates
+        updatedStates[state.volumeID] = state
+        activeImportStates = updatedStates
+    }
+
+    private func removeActiveImportState(for volumeID: String) {
+        var updatedStates = activeImportStates
+        updatedStates.removeValue(forKey: volumeID)
+        activeImportStates = updatedStates
+    }
+
+    private func refreshAggregateImportProperties() {
+        isImporting = !activeImportStates.isEmpty
+
+        guard let primaryImport = primaryActiveImportState else {
+            importProgress = nil
+            currentImportVolumeID = nil
+            importedBytes = 0
+            totalImportBytes = 0
+            importedPhotoCount = 0
+            totalPhotoCount = 0
+            importedVideoCount = 0
+            totalVideoCount = 0
+            return
+        }
+
+        currentImportVolumeID = primaryImport.volumeID
+        importProgress = primaryImport.progress
+        importedBytes = primaryImport.importedBytes
+        totalImportBytes = primaryImport.totalImportBytes
+        importedPhotoCount = primaryImport.importedPhotoCount
+        totalPhotoCount = primaryImport.totalPhotoCount
+        importedVideoCount = primaryImport.importedVideoCount
+        totalVideoCount = primaryImport.totalVideoCount
+    }
+
+    private func setPersistentStatusMessage(_ message: String) {
+        statusResetTask?.cancel()
+        statusResetTask = nil
+        lastResultMessage = message
+    }
+
+    private func scheduleStatusReset(after delay: TimeInterval, expectedMessage: String) {
+        statusResetTask?.cancel()
+        statusResetTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            guard !self.isImporting, self.lastResultMessage == expectedMessage else { return }
+            self.lastResultMessage = "等待导入"
+            self.statusResetTask = nil
         }
     }
 

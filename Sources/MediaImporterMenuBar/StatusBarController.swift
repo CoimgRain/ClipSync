@@ -281,11 +281,14 @@ final class StatusBarController: NSObject {
         }
 
         button.title = title
-        button.image = NSImage(
+
+        let image = NSImage(
             systemSymbolName: hasVolumes ? "externaldrive.fill.badge.checkmark" : "externaldrive",
             accessibilityDescription: title
         )
-        button.contentTintColor = hasVolumes ? NSColor.controlAccentColor : NSColor.labelColor
+        image?.isTemplate = true
+        button.image = image
+        button.contentTintColor = nil
         button.toolTip = nil
     }
 

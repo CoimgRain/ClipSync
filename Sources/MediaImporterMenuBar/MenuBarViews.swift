@@ -37,11 +37,7 @@ struct MenuContentView: View {
     }
 
     private var visibleStatusMessage: String? {
-        guard importer.isImporting || importer.lastResultMessage != "等待导入" else {
-            return nil
-        }
-
-        return importer.lastResultMessage
+        importer.statusBannerMessage
     }
 
     private var destinationPanelShape: RoundedRectangle {
@@ -658,6 +654,7 @@ private struct FolderClassificationRulesView: View {
             .buttonStyle(.bordered)
             .controlSize(.regular)
             .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(.white)
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
@@ -844,6 +841,7 @@ private struct FolderClassificationRulesView: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .foregroundStyle(.white)
             }
 
             Text(logsSummaryText)
@@ -886,6 +884,7 @@ private struct FolderClassificationRuleRow: View {
                 } label: {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
                         .frame(minWidth: 14, minHeight: 14)
                 }
                 .buttonStyle(.bordered)
@@ -897,6 +896,7 @@ private struct FolderClassificationRuleRow: View {
                 } label: {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
                         .frame(minWidth: 14, minHeight: 14)
                 }
                 .buttonStyle(.bordered)
@@ -908,6 +908,7 @@ private struct FolderClassificationRuleRow: View {
                 } label: {
                     Image(systemName: "trash")
                         .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.white)
                         .frame(minWidth: 14, minHeight: 14)
                 }
                 .buttonStyle(.bordered)
@@ -1006,12 +1007,14 @@ private struct FolderClassificationLogsSheetView: View {
                     settings.clearClassificationLogs()
                 }
                 .buttonStyle(.bordered)
+                .foregroundStyle(.white)
                 .disabled(settings.classificationLogs.isEmpty)
 
                 Button("完成") {
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)
+                .foregroundStyle(.white)
             }
 
             if settings.classificationLogs.isEmpty {
@@ -1249,18 +1252,29 @@ private struct FolderClassificationInlineTextField: View {
     let width: CGFloat
 
     var body: some View {
-        TextField(placeholder, text: $text)
-            .textFieldStyle(.plain)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(FolderClassificationPalette.primaryText)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .frame(width: width)
-            .background(FolderClassificationPalette.panelBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+        ZStack(alignment: .leading) {
+            if text.isEmpty {
+                Text(placeholder)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.9))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .allowsHitTesting(false)
             }
+
+            TextField("", text: $text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+        }
+        .frame(width: width)
+        .background(FolderClassificationPalette.panelBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(FolderClassificationPalette.border, lineWidth: 1)
+        }
     }
 }
 
@@ -1405,7 +1419,11 @@ private struct VolumeCard: View {
     let volume: MountedVolume
 
     private var isCurrentVolumeImporting: Bool {
-        importer.currentImportVolumeID == volume.id && importer.importProgress != nil
+        importer.isImporting(volumeID: volume.id)
+    }
+
+    private var importState: MediaImporter.VolumeImportState? {
+        importer.importState(for: volume.id)
     }
 
     private var visualStyle: VolumeVisualStyle {
@@ -1575,16 +1593,12 @@ private struct VolumeCard: View {
     }
 
     private var isPrimaryActionDisabled: Bool {
-        (!settings.destinationFolderPath.isEmpty && importer.isImporting) || !hasImportableMedia
+        isCurrentVolumeImporting || !hasImportableMedia
     }
 
     private var helperText: String {
         if settings.destinationFolderPath.isEmpty {
             return "请先选择一个导入目标文件夹。"
-        }
-
-        if importer.isImporting {
-            return "当前已有导入任务在进行中，完成后可以继续处理其他设备。"
         }
 
         if settings.autoImportEnabled {
@@ -1993,6 +2007,8 @@ private struct VolumeCard: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(volume.name)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
                     formatSummaryView
                 }
                 .padding(.leading, 4)
@@ -2124,7 +2140,7 @@ private struct VolumeCard: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(importer.importProgressDetailText ?? "-- / --")
+                    Text(importer.importProgressDetailText(for: volume.id) ?? "-- / --")
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.85))
@@ -2133,10 +2149,10 @@ private struct VolumeCard: View {
 
                     Group {
                         if PreviewExecutionContext.isActive {
-                            Text(importer.importRemainingTimeText ?? "--:--")
+                            Text(importer.importRemainingTimeText(for: volume.id) ?? "--:--")
                         } else {
                             TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-                                Text(importer.importRemainingTimeText ?? "--:--")
+                                Text(importer.importRemainingTimeText(for: volume.id) ?? "--:--")
                             }
                         }
                     }
@@ -2147,7 +2163,7 @@ private struct VolumeCard: View {
                 }
 
                 GeometryReader { proxy in
-                    let progress = max(0, min(1, importer.importProgress ?? 0))
+                    let progress = max(0, min(1, importState?.progress ?? 0))
 
                     ZStack(alignment: .leading) {
                         Capsule()
@@ -2161,12 +2177,13 @@ private struct VolumeCard: View {
                 }
                 .frame(height: 8)
 
-                if importer.totalPhotoCount > 0 || importer.totalVideoCount > 0 {
+                if let importState,
+                   importState.totalPhotoCount > 0 || importState.totalVideoCount > 0 {
                     HStack(spacing: 12) {
-                        Text("\(importer.importedPhotoCount)/\(importer.totalPhotoCount) 张照片")
+                        Text("\(importState.importedPhotoCount)/\(importState.totalPhotoCount) 张照片")
                             .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Text("\(importer.importedVideoCount)/\(importer.totalVideoCount) 个视频")
+                        Text("\(importState.importedVideoCount)/\(importState.totalVideoCount) 个视频")
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
@@ -2174,7 +2191,7 @@ private struct VolumeCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.78)
                 } else {
-                    Text(importer.lastResultMessage)
+                    Text("正在导入 \(volume.name)...")
                         .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
@@ -2191,7 +2208,7 @@ private struct VolumeCard: View {
                 .frame(width: 1, height: 46)
 
             Button("取消导入") {
-                importer.cancelImport()
+                importer.cancelImport(for: volume.id)
             }
             .buttonStyle(.plain)
             .font(.system(size: 12, weight: .semibold, design: .rounded))
