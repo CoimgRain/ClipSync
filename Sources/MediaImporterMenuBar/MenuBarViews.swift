@@ -28,16 +28,11 @@ struct MenuContentView: View {
     let onContentHeightChange: ((CGFloat) -> Void)?
     @State private var isShowingSettingsPopover = false
     @State private var destinationAnimationSeed = UUID().uuidString
-    @State private var isHoveringAutoImportChip = false
     @State private var lastReportedContentHeight: CGFloat = 0
     @StateObject private var folderClassificationWindowController = FolderClassificationWindowController()
 
     init(onContentHeightChange: ((CGFloat) -> Void)? = nil) {
         self.onContentHeightChange = onContentHeightChange
-    }
-
-    private var visibleStatusMessage: String? {
-        importer.statusBannerMessage
     }
 
     private var destinationPanelShape: RoundedRectangle {
@@ -65,16 +60,56 @@ struct MenuContentView: View {
         )
     }
 
-    private var destinationChipFill: Color {
-        Color(red: 0.24, green: 0.40, blue: 0.58).opacity(0.30)
+    private var destinationCapacityChipFill: LinearGradient {
+        LinearGradient(
+            colors: [
+                Color.black.opacity(0.18),
+                Color.black.opacity(0.16),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
-    private var autoImportChipAnimation: Animation {
-        .spring(response: 0.34, dampingFraction: 0.82)
+    private var destinationAvailableCapacityText: String? {
+        guard !settings.destinationFolderPath.isEmpty else { return nil }
+        let destinationURL = URL(fileURLWithPath: settings.destinationFolderPath, isDirectory: true)
+
+        guard let values = try? destinationURL.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey,
+            .volumeAvailableCapacityForOpportunisticUsageKey,
+            .volumeAvailableCapacityKey,
+        ]) else {
+            return nil
+        }
+
+        let availableCapacity = [
+            values.volumeAvailableCapacityForImportantUsage.map { Int64($0) },
+            values.volumeAvailableCapacityForOpportunisticUsage.map { Int64($0) },
+            values.volumeAvailableCapacity.map { Int64($0) },
+        ]
+        .compactMap { $0 }
+        .first
+
+        guard let availableCapacity else { return nil }
+        return "剩余 \(roundedCapacityText(for: availableCapacity))"
     }
 
-    private var autoImportChipIconColor: Color {
-        settings.autoImportEnabled ? Color(red: 1.00, green: 0.84, blue: 0.24) : .white.opacity(0.72)
+    private func roundedCapacityText(for capacity: Int64) -> String {
+        let units: [(label: String, scale: Double)] = [
+            ("TB", 1_000_000_000_000),
+            ("GB", 1_000_000_000),
+            ("MB", 1_000_000),
+            ("KB", 1_000),
+        ]
+
+        let value = Double(max(capacity, 0))
+
+        for unit in units where value >= unit.scale {
+            return String(format: "%.2f %@", locale: Locale(identifier: "en_US_POSIX"), value / unit.scale, unit.label)
+        }
+
+        return String(format: "%.2f B", locale: Locale(identifier: "en_US_POSIX"), value)
     }
 
     private var destinationPanelBackground: some View {
@@ -143,7 +178,6 @@ struct MenuContentView: View {
             lastReportedContentHeight = measuredHeight
             onContentHeightChange?(measuredHeight)
         }
-        .animation(.easeInOut(duration: 0.2), value: visibleStatusMessage)
         .task(id: mediaSummaryRefreshTaskID) {
             guard !PreviewExecutionContext.isActive else { return }
             await refreshMediaSummaries()
@@ -151,35 +185,28 @@ struct MenuContentView: View {
     }
 
     private var bottomSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let visibleStatusMessage {
-                StatusBanner(message: visibleStatusMessage)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-
-            footerSection
-        }
+        footerSection
     }
 
     private var destinationSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("目标文件夹")
-                        .font(.headline)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundStyle(.white.opacity(0.96))
 
                     if settings.destinationFolderPath.isEmpty {
                         VStack(alignment: .leading, spacing: 3) {
                             
                             Text("可在右下角设置中指定本地目录")
-                                .font(.footnote)
-                                .foregroundStyle(.white.opacity(0.9))
+                                .font(.system(size: 12, weight: .regular, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.8))
                         }
                     } else {
                         Text(settings.destinationFolderPath)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.white.opacity(0.90))
+                            .font(.system(size: 12, weight: .regular, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.80))
                             .textSelection(.enabled)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -188,55 +215,23 @@ struct MenuContentView: View {
 
                 Spacer()
 
-                Button {
-                    withAnimation(autoImportChipAnimation) {
-                        settings.autoImportEnabled.toggle()
-                    }
-                } label: {
-                    HStack(spacing: -15) {
-                        ZStack {
-                            Image(systemName: "bolt.slash.fill")
-                                .opacity(settings.autoImportEnabled ? 0 : 1)
-                                .scaleEffect(settings.autoImportEnabled ? 0.82 : 1)
-                                .offset(y: settings.autoImportEnabled ? -1 : 0)
-
-                            Image(systemName: "bolt.fill")
-                                .opacity(settings.autoImportEnabled ? 1 : 0)
-                                .scaleEffect(settings.autoImportEnabled ? 1 : 0.82)
-                                .offset(y: settings.autoImportEnabled ? 0 : 1)
+                if let destinationAvailableCapacityText {
+                    Text(destinationAvailableCapacityText)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .tracking(0.2)
+                        .foregroundStyle(.white.opacity(0.95))
+                        .padding(.horizontal, 18)
+                        .frame(height: 42)
+                        .background {
+                            Capsule()
+                                .fill(destinationCapacityChipFill)
+                                .overlay {
+                                    Capsule()
+                                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                                }
                         }
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(autoImportChipIconColor)
-                        .frame(width: 30, height: 30)
-                        .shadow(
-                            color: settings.autoImportEnabled
-                                ? Color(red: 1.00, green: 0.84, blue: 0.24).opacity(isHoveringAutoImportChip ? 0.28 : 0.18)
-                                : .clear,
-                            radius: settings.autoImportEnabled ? (isHoveringAutoImportChip ? 8 : 5) : 0,
-                            x: 0,
-                            y: 0
-                        )
-
-                        Text(settings.autoImportEnabled ? "自动导入已开启" : "目前未自动导入")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.92))
-                            .padding(.horizontal, 11)
-                    }
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-                .padding(.horizontal, 0)
-                .padding(.vertical, 3)
-                .frame(minHeight: 30)
-                .fixedSize(horizontal: true, vertical: false)
-                .buttonStyle(AutoImportStatusChipButtonStyle(
-                    isHovered: isHoveringAutoImportChip,
-                    fillColor: destinationChipFill
-                ))
-                .onHover { hovering in
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        isHoveringAutoImportChip = hovering
-                    }
-                }
-                .animation(autoImportChipAnimation, value: settings.autoImportEnabled)
             }
         }
         .padding(15)
@@ -1410,16 +1405,23 @@ private struct VolumeCard: View {
     @State private var animationSeed = UUID().uuidString
     @State private var isHoveringCapacityChip = false
     @State private var isHoveringOpenVolumeAction = false
+    @State private var isHoveringAutoImportAction = false
     @State private var isHoveringEjectVolumeAction = false
     @State private var isHoveringCard = false
     @State private var isPrimaryActionHovered = false
     @State private var isCancelImportHovered = false
+    @State private var autoImportHintText: String?
+    @State private var autoImportHintToken = UUID()
     @State private var headerRowWidth: CGFloat = 0
 
     let volume: MountedVolume
 
     private var isCurrentVolumeImporting: Bool {
         importer.isImporting(volumeID: volume.id)
+    }
+
+    private var isPerVolumeAutoImportEnabled: Bool {
+        settings.isAutoImportEnabled(forVolumeID: volume.autoImportPreferenceID)
     }
 
     private var importState: MediaImporter.VolumeImportState? {
@@ -1511,6 +1513,10 @@ private struct VolumeCard: View {
             return "已全部导入"
         }
 
+        if isDestinationFolderInsideCurrentVolume {
+            return "目标文件夹不可用"
+        }
+
         if !hasImportableMedia {
             return "无可导入影音"
         }
@@ -1592,8 +1598,18 @@ private struct VolumeCard: View {
         return hasImportedMedia && mediaSummary.pendingPhotoCount == 0 && mediaSummary.pendingVideoCount == 0
     }
 
+    private var isDestinationFolderInsideCurrentVolume: Bool {
+        guard !settings.destinationFolderPath.isEmpty else { return false }
+        let destinationURL = URL(fileURLWithPath: settings.destinationFolderPath, isDirectory: true)
+        return MediaImporter.isSameOrDescendant(destinationURL, of: volume.url)
+    }
+
+    private var isAutoImportToggleDisabled: Bool {
+        isDestinationFolderInsideCurrentVolume
+    }
+
     private var isPrimaryActionDisabled: Bool {
-        isCurrentVolumeImporting || !hasImportableMedia
+        isCurrentVolumeImporting || !hasImportableMedia || isDestinationFolderInsideCurrentVolume
     }
 
     private var helperText: String {
@@ -1601,28 +1617,75 @@ private struct VolumeCard: View {
             return "请先选择一个导入目标文件夹。"
         }
 
-        if settings.autoImportEnabled {
-            return "已开启自动导入，新插入的设备会自动开始导入。"
+        if isDestinationFolderInsideCurrentVolume {
+            return "目标文件夹位于当前设备内部。请改为选择 Mac 本地磁盘上的文件夹后，再导入或开启自动导入。"
         }
 
-        return "导入时会按“设备名/时间戳”创建新文件夹，不会删除设备里的原始文件。"
+        if !settings.autoImportEnabled && isPerVolumeAutoImportEnabled {
+            return "这个设备已记住自动导入，但总开关还没有开启。"
+        }
+
+        if settings.autoImportEnabled && isPerVolumeAutoImportEnabled {
+            return "这个设备已加入自动导入，新插入时会自动开始导入。"
+        }
+
+        if settings.autoImportEnabled && !isPerVolumeAutoImportEnabled {
+            return "这个设备已排除在自动导入之外，需要时仍可手动导入。"
+        }
+
+        return "这个设备目前默认手动导入。开启后会记住，下次插入时继续按这个设置处理。"
+    }
+
+    private var volumeAutoImportActionIconName: String {
+        isPerVolumeAutoImportEnabled
+            ? (isHoveringAutoImportAction ? "bolt.fill" : "bolt")
+            : (isHoveringAutoImportAction ? "bolt.slash.fill" : "bolt.slash")
     }
 
     @ViewBuilder
     private var mediaSummaryDetailView: some View {
         if let mediaSummary {
-            VStack(alignment: .leading, spacing: 3) {
-                mediaSummaryLine(
-                    symbol: "photo.on.rectangle.angled",
-                    importedCount: mediaSummary.importedPhotoCount,
-                    pendingCount: mediaSummary.pendingPhotoCount
-                )
+            HStack(alignment: .center, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
+                    mediaSummaryIconRow(symbol: "photo.on.rectangle.angled")
+                    mediaSummaryIconRow(symbol: "video.fill")
+                }
 
-                mediaSummaryLine(
-                    symbol: "video.fill",
-                    importedCount: mediaSummary.importedVideoCount,
-                    pendingCount: mediaSummary.pendingVideoCount
-                )
+                HStack(spacing: 0) {
+                    if !isDestinationFolderInsideCurrentVolume {
+                        VStack(alignment: .trailing, spacing: 3) {
+                            summaryMetricColumn(
+                                symbol: "checkmark.circle.fill",
+                                value: mediaSummary.importedPhotoCount
+                            )
+
+                            summaryMetricColumn(
+                                symbol: "checkmark.circle.fill",
+                                value: mediaSummary.importedVideoCount
+                            )
+                        }
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                        Rectangle()
+                            .fill(.white.opacity(0.18))
+                            .frame(width: 1)
+                            .padding(.horizontal, 7)
+                    }
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        summaryMetricColumn(
+                            symbol: "arrow.down.circle.fill",
+                            value: mediaSummary.pendingPhotoCount
+                        )
+
+                        summaryMetricColumn(
+                            symbol: "arrow.down.circle.fill",
+                            value: mediaSummary.pendingVideoCount
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .layoutPriority(1)
         } else {
@@ -1639,38 +1702,11 @@ private struct VolumeCard: View {
         }
     }
 
-    private func mediaSummaryLine(
-        symbol: String,
-        importedCount: Int,
-        pendingCount: Int
-    ) -> some View {
-        HStack(alignment: .center, spacing: 6) {
-            Image(systemName: symbol)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.82))
-                .frame(width: 10)
-
-            HStack(spacing: 0) {
-                summaryMetricColumn(
-                    symbol: "checkmark.circle.fill",
-                    value: importedCount
-                )
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                Rectangle()
-                    .fill(.white.opacity(0.18))
-                    .frame(width: 1, height: 12)
-                    .padding(.horizontal, 7)
-
-                summaryMetricColumn(
-                    symbol: "arrow.down.circle.fill",
-                    value: pendingCount
-                )
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func mediaSummaryIconRow(symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.82))
+            .frame(width: 10, alignment: .center)
     }
 
     private func summaryMetricColumn(symbol: String, value: Int) -> some View {
@@ -1697,11 +1733,11 @@ private struct VolumeCard: View {
     }
 
     private var compactCapacityChipWidth: CGFloat {
-        max(84, CGFloat(volume.roundedTotalText.count) * 10.2 + 34)
+        max(84, compactCapacityChipContentWidth + 24)
     }
 
     private var expandedCapacityChipWidth: CGFloat {
-        max(compactCapacityChipWidth + 34, 128)
+        140
     }
 
     private var capacityChipAnimation: Animation {
@@ -1712,7 +1748,6 @@ private struct VolumeCard: View {
         .easeInOut(duration: 0.18)
     }
 
-    private static let formatSummaryUIFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
     private let collapsedCapacityChipTriggerInset: CGFloat = 10
 
     private var formatSummaryFormatNameText: String {
@@ -1735,6 +1770,18 @@ private struct VolumeCard: View {
         ceil((text as NSString).size(withAttributes: [.font: Self.formatSummaryUIFont]).width)
     }
 
+    private func compactCapacityChipTextWidth(_ text: String) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: Self.compactCapacityChipValueFont]).width)
+    }
+
+    private var compactCapacityChipContentWidth: CGFloat {
+        let iconWidth: CGFloat = 13
+        let iconLeadingPadding: CGFloat = 4
+        let textTrailingPadding: CGFloat = 4
+        let spacing: CGFloat = 6
+        return iconWidth + iconLeadingPadding + spacing + compactCapacityChipTextWidth(volume.roundedTotalText) + textTrailingPadding
+    }
+
     private var expandedFormatSummaryMiddleWidth: CGFloat {
         formatSummaryTextWidth(expandedFormatSummaryMiddleText)
     }
@@ -1747,13 +1794,92 @@ private struct VolumeCard: View {
         "\(usagePercent)%"
     }
 
+    private static let formatSummaryUIFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
+    private static let compactCapacityChipValueFont = NSFont.systemFont(ofSize: 15, weight: .bold)
+
+    private func formatSummaryRequiredWidth(includeFormatSuffix: Bool) -> CGFloat {
+        let leadingWidth = formatSummaryTextWidth(formatSummaryFormatNameText)
+        let suffixWidth = includeFormatSuffix ? formatSummaryTextWidth(formatSummaryFormatSuffixText) : 0
+        return leadingWidth + suffixWidth + expandedFormatSummaryMiddleWidth + formatSummaryTextWidth(formatSummaryTrailingText)
+    }
+
+    @ViewBuilder
+    private func formatSummaryLine(includeFormatSuffix: Bool) -> some View {
+        HStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Text(formatSummaryFormatNameText)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if includeFormatSuffix {
+                    Text(formatSummaryFormatSuffixText)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .transition(.opacity)
+                }
+            }
+
+            ZStack {
+                Text(expandedFormatSummaryMiddleText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .opacity(isHoveringCapacityChip ? 0 : 1)
+                    .offset(x: isHoveringCapacityChip ? -4 : 0)
+
+                Text(compactFormatSummaryMiddleText)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .opacity(isHoveringCapacityChip ? 1 : 0)
+                    .offset(x: isHoveringCapacityChip ? 0 : 4)
+            }
+            .frame(
+                width: isHoveringCapacityChip
+                    ? compactFormatSummaryMiddleWidth
+                    : expandedFormatSummaryMiddleWidth,
+                alignment: .center
+            )
+            .clipped()
+
+            Text(formatSummaryTrailingText)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
     private var capacityChipBackground: some View {
         Capsule()
-            .fill(Color.black.opacity(0.2))
+            .fill(capacityChipFillStyle)
             .overlay {
                 Capsule()
-                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                    .strokeBorder(
+                        isPerVolumeAutoImportEnabled
+                            ? Color(red: 0.42, green: 0.86, blue: 0.58).opacity(isHoveringCapacityChip ? 0.64 : 0.40)
+                            : Color.white.opacity(0.08),
+                        lineWidth: 1
+                    )
             }
+    }
+
+    private var capacityChipFillStyle: LinearGradient {
+        if isPerVolumeAutoImportEnabled {
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.18, green: 0.58, blue: 0.36).opacity(isHoveringCapacityChip ? 0.80 : 0.64),
+                    Color(red: 0.28, green: 0.74, blue: 0.46).opacity(isHoveringCapacityChip ? 0.70 : 0.54),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        return LinearGradient(
+            colors: [
+                Color.black.opacity(0.2),
+                Color.black.opacity(0.2),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     private func openVolumeInFinder() {
@@ -1773,57 +1899,184 @@ private struct VolumeCard: View {
         }
     }
 
+    private func toggleVolumeAutoImport() {
+        guard !isAutoImportToggleDisabled else { return }
+
+        withAnimation(.easeInOut(duration: 0.28)) {
+            settings.toggleAutoImport(forVolumeID: volume.autoImportPreferenceID)
+            if settings.isAutoImportEnabled(forVolumeID: volume.autoImportPreferenceID) && !settings.autoImportEnabled {
+                settings.autoImportEnabled = true
+            }
+        }
+
+        let shortHintText = settings.isAutoImportEnabled(forVolumeID: volume.autoImportPreferenceID) ? "自动导入" : "手动导入"
+        showAutoImportHint(shortHintText)
+    }
+
+    private func showAutoImportHint(_ text: String) {
+        let token = UUID()
+        autoImportHintToken = token
+
+        withAnimation(.spring(response: 0.26, dampingFraction: 0.86)) {
+            autoImportHintText = text
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+            guard autoImportHintToken == token else { return }
+            withAnimation(.easeOut(duration: 0.2)) {
+                autoImportHintText = nil
+            }
+        }
+    }
+
+    private func actionButtonCircleBackground(isHovered: Bool) -> some View {
+        Circle()
+            .fill(isHovered ? Color.white.opacity(0.18) : Color.clear)
+            .overlay {
+                Circle()
+                    .strokeBorder(
+                        isHovered ? Color.white.opacity(0.30) : Color.clear,
+                        lineWidth: 1
+                    )
+            }
+            .frame(width: 24, height: 24)
+            .shadow(
+                color: isHovered ? Color.black.opacity(0.22) : .clear,
+                radius: 6,
+                x: 0,
+                y: 2
+            )
+    }
+
+    private func actionButtonHoverScale(isHovered: Bool) -> CGFloat {
+        isHovered ? 1.10 : 1
+    }
+
+    private var capacityChipHeight: CGFloat {
+        autoImportHintText == nil ? 42 : 64
+    }
+
     private var capacityChip: some View {
-        ZStack {
-            if isHoveringCapacityChip {
-                HStack(spacing: 0) {
+        VStack(spacing: 0) {
+            ZStack {
+                if isHoveringCapacityChip {
+                    HStack(spacing: 0) {
+                        Button {
+                            openVolumeInFinder()
+                        } label: {
+                            Image(systemName: isHoveringOpenVolumeAction ? "folder.fill" : "folder")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 40, height: 30)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .buttonStyle(CapacityChipActionButtonStyle(isHovered: isHoveringOpenVolumeAction))
+                        .onHover { hovering in
+                            withAnimation(.easeOut(duration: 0.14)) {
+                                isHoveringOpenVolumeAction = hovering
+                            }
+                        }
+
+                        Rectangle()
+                            .fill(Color.white.opacity(0.16))
+                            .frame(width: 1, height: 22)
+                            .padding(.horizontal, 2)
+
                     Button {
-                        openVolumeInFinder()
+                        toggleVolumeAutoImport()
                     } label: {
-                        Image(systemName: isHoveringOpenVolumeAction ? "folder.fill" : "folder")
+                        Image(systemName: volumeAutoImportActionIconName)
                             .font(.system(size: 13, weight: .semibold))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
+                                .frame(width: 40, height: 30)
+                                .background {
+                                    actionButtonCircleBackground(isHovered: isHoveringAutoImportAction)
+                                }
+                                .scaleEffect(actionButtonHoverScale(isHovered: isHoveringAutoImportAction))
+                                .animation(.easeOut(duration: 0.16), value: isHoveringAutoImportAction)
+                                .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .buttonStyle(CapacityChipActionButtonStyle(isHovered: isHoveringOpenVolumeAction))
+                    .buttonStyle(CapacityChipActionButtonStyle(isHovered: isHoveringAutoImportAction))
+                    .opacity(isAutoImportToggleDisabled ? 0.38 : 1)
+                    .allowsHitTesting(!isAutoImportToggleDisabled)
                     .onHover { hovering in
+                        guard !isAutoImportToggleDisabled else {
+                            isHoveringAutoImportAction = false
+                            return
+                        }
                         withAnimation(.easeOut(duration: 0.14)) {
-                            isHoveringOpenVolumeAction = hovering
+                            isHoveringAutoImportAction = hovering
                         }
                     }
 
-                    Rectangle()
-                        .fill(Color.white.opacity(0.16))
-                        .frame(width: 1, height: 22)
+                        Rectangle()
+                            .fill(Color.white.opacity(0.16))
+                            .frame(width: 1, height: 22)
+                            .padding(.horizontal, 2)
 
-                    Button {
-                        ejectVolume()
-                    } label: {
-                        Image(systemName: isHoveringEjectVolumeAction ? "eject.fill" : "eject")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .buttonStyle(CapacityChipActionButtonStyle(isHovered: isHoveringEjectVolumeAction))
-                    .onHover { hovering in
-                        withAnimation(.easeOut(duration: 0.14)) {
-                            isHoveringEjectVolumeAction = hovering
+                        Button {
+                            ejectVolume()
+                        } label: {
+                            Image(systemName: isHoveringEjectVolumeAction ? "eject.fill" : "eject")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 40, height: 30)
+                                .contentShape(Rectangle())
                         }
-                    }
+                        .buttonStyle(.plain)
+                        .buttonStyle(CapacityChipActionButtonStyle(isHovered: isHoveringEjectVolumeAction))
+                        .onHover { hovering in
+                            withAnimation(.easeOut(duration: 0.14)) {
+                                isHoveringEjectVolumeAction = hovering
+                            }
+                        }
                 }
                 .foregroundStyle(.white.opacity(0.95))
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             } else {
-                Text(volume.roundedTotalText)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .tracking(0.2)
-                    .foregroundStyle(.white.opacity(0.95))
+                HStack(spacing: 6) {
+                    Image(systemName: isPerVolumeAutoImportEnabled ? "bolt.fill" : "bolt.slash")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(
+                            isPerVolumeAutoImportEnabled
+                                ? .white.opacity(0.95)
+                                : .white.opacity(0.62)
+                        )
+                        .padding(.leading, 4)
+
+                    Text(volume.roundedTotalText)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .tracking(0.2)
+                        .foregroundStyle(.white.opacity(0.95))
+                        .padding(.trailing, 4)
+                }
                     .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
         }
-        .frame(width: isHoveringCapacityChip ? expandedCapacityChipWidth : compactCapacityChipWidth, height: 42)
+            .frame(height: 42)
+
+            if let autoImportHintText {
+                VStack(spacing: 0) {
+                    Text(autoImportHintText)
+                        .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.92))
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, -1)
+                .padding(.bottom, 11)
+                .transition(
+                    .asymmetric(
+                        insertion: .offset(y: -28).combined(with: .scale(scale: 0.88, anchor: .top)).combined(with: .opacity),
+                        removal: .opacity.combined(with: .offset(y: -8))
+                    )
+                )
+            }
+        }
+        .frame(
+            width: isHoveringCapacityChip ? expandedCapacityChipWidth : compactCapacityChipWidth,
+            height: capacityChipHeight,
+            alignment: .top
+        )
         .background {
             capacityChipBackground
         }
@@ -1833,10 +2086,13 @@ private struct VolumeCard: View {
                 .inset(by: isHoveringCapacityChip ? 0 : collapsedCapacityChipTriggerInset)
         )
         .animation(capacityChipAnimation, value: isHoveringCapacityChip)
+        .animation(.easeInOut(duration: 0.28), value: isPerVolumeAutoImportEnabled)
+        .animation(.spring(response: 0.26, dampingFraction: 0.86), value: autoImportHintText != nil)
         .onHover { hovering in
             isHoveringCapacityChip = hovering
             if !hovering {
                 isHoveringOpenVolumeAction = false
+                isHoveringAutoImportAction = false
                 isHoveringEjectVolumeAction = false
             }
         }
@@ -1958,47 +2214,18 @@ private struct VolumeCard: View {
     }
 
     private var formatSummaryView: some View {
-        HStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Text(formatSummaryFormatNameText)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+        GeometryReader { proxy in
+            let shouldShowFormatSuffix = proxy.size.width >= formatSummaryRequiredWidth(includeFormatSuffix: true)
 
-                Text(formatSummaryFormatSuffixText)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-
-            ZStack {
-                Text(expandedFormatSummaryMiddleText)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .opacity(isHoveringCapacityChip ? 0 : 1)
-                    .offset(x: isHoveringCapacityChip ? -4 : 0)
-
-                Text(compactFormatSummaryMiddleText)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .opacity(isHoveringCapacityChip ? 1 : 0)
-                    .offset(x: isHoveringCapacityChip ? 0 : 4)
-            }
-            .frame(
-                width: isHoveringCapacityChip
-                    ? compactFormatSummaryMiddleWidth
-                    : expandedFormatSummaryMiddleWidth,
-                alignment: .center
-            )
-            .clipped()
-
-            Text(formatSummaryTrailingText)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            formatSummaryLine(includeFormatSuffix: shouldShowFormatSuffix)
+                .animation(.easeInOut(duration: 0.18), value: shouldShowFormatSuffix)
         }
         .font(.system(size: 14, weight: .semibold, design: .rounded))
         .foregroundStyle(.white.opacity(0.70))
         .lineLimit(1)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(formatSummaryAnimation, value: isHoveringCapacityChip)
+        .frame(height: 18)
     }
 
     var body: some View {
@@ -2006,9 +2233,10 @@ private struct VolumeCard: View {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(volume.name)
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.system(size: 21, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(1)
+
                     formatSummaryView
                 }
                 .padding(.leading, 4)
@@ -2279,51 +2507,46 @@ private struct CapacityChipActionButtonStyle: ButtonStyle {
         configuration.label
             .background {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(.white.opacity(configuration.isPressed ? 0.12 : (isHovered ? 0.08 : 0)))
+                    .fill(
+                        isHovered
+                            ? Color.black.opacity(configuration.isPressed ? 0.34 : 0.24)
+                            : .clear
+                    )
                     .overlay {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .strokeBorder(.white.opacity(configuration.isPressed ? 0.20 : (isHovered ? 0.14 : 0)), lineWidth: 1)
-                    }
-            }
-            .scaleEffect(configuration.isPressed ? 0.94 : (isHovered ? 1.02 : 1))
-            .shadow(
-                color: isHovered ? .white.opacity(configuration.isPressed ? 0.04 : 0.10) : .clear,
-                radius: 8,
-                x: 0,
-                y: 0
-            )
-            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
-            .animation(.easeOut(duration: 0.18), value: isHovered)
-    }
-}
-
-private struct AutoImportStatusChipButtonStyle: ButtonStyle {
-    let isHovered: Bool
-    let fillColor: Color
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                Capsule()
-                    .fill(fillColor)
-                    .overlay {
-                        Capsule()
-                            .fill(.white.opacity(configuration.isPressed ? 0.13 : (isHovered ? 0.07 : 0)))
-                    }
-                    .overlay {
-                        Capsule()
                             .strokeBorder(
-                                .white.opacity(configuration.isPressed ? 0.22 : (isHovered ? 0.16 : 0.10)),
+                                isHovered
+                                    ? .white.opacity(configuration.isPressed ? 0.34 : 0.26)
+                                    : .clear,
                                 lineWidth: 1
                             )
                     }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        isHovered ? .white.opacity(configuration.isPressed ? 0.05 : 0.10) : .clear,
+                                        .clear,
+                                    ],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    }
             }
-            .scaleEffect(configuration.isPressed ? 0.97 : (isHovered ? 1.015 : 1))
+            .scaleEffect(configuration.isPressed ? 0.90 : (isHovered ? 1.10 : 1))
             .shadow(
-                color: isHovered ? .white.opacity(configuration.isPressed ? 0.04 : 0.10) : .clear,
+                color: isHovered ? .white.opacity(configuration.isPressed ? 0.06 : 0.16) : .clear,
                 radius: isHovered ? 10 : 0,
                 x: 0,
                 y: 0
+            )
+            .shadow(
+                color: isHovered ? .black.opacity(configuration.isPressed ? 0.20 : 0.28) : .clear,
+                radius: isHovered ? 12 : 0,
+                x: 0,
+                y: isHovered ? 4 : 0
             )
             .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
             .animation(.easeOut(duration: 0.18), value: isHovered)
@@ -3105,6 +3328,7 @@ struct MenuContentView_Previews: PreviewProvider {
     private static let previewVolumes = [
         MountedVolume(
             id: "preview-volume-green",
+            autoImportPreferenceID: "preview-auto-import-green",
             name: "SONY_CARD",
             url: URL(fileURLWithPath: "/Volumes/SONY_CARD", isDirectory: true),
             formatDescription: "exFAT",
@@ -3113,6 +3337,7 @@ struct MenuContentView_Previews: PreviewProvider {
         ),
         MountedVolume(
             id: "preview-volume-orange",
+            autoImportPreferenceID: "preview-auto-import-orange",
             name: "Trae CN",
             url: URL(fileURLWithPath: "/Volumes/Trae CN", isDirectory: true),
             formatDescription: "Mac OS Extended",
@@ -3121,6 +3346,7 @@ struct MenuContentView_Previews: PreviewProvider {
         ),
         MountedVolume(
             id: "preview-volume-red",
+            autoImportPreferenceID: "preview-auto-import-red",
             name: "BACKUP_X",
             url: URL(fileURLWithPath: "/Volumes/BACKUP_X", isDirectory: true),
             formatDescription: "exFAT",

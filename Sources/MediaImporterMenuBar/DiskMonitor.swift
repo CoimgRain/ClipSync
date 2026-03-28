@@ -30,6 +30,7 @@ struct VolumeMediaSummary: Equatable, Sendable {
 
 struct MountedVolume: Identifiable, Equatable, Sendable {
     let id: String
+    let autoImportPreferenceID: String
     let name: String
     let url: URL
     let formatDescription: String
@@ -81,6 +82,7 @@ struct MountedVolume: Identifiable, Equatable, Sendable {
 final class DiskMonitor: ObservableObject {
     nonisolated private static let volumeResourceKeys: Set<URLResourceKey> = [
         .volumeNameKey,
+        .volumeUUIDStringKey,
         .volumeLocalizedFormatDescriptionKey,
         .volumeIsLocalKey,
         .volumeIsEjectableKey,
@@ -155,9 +157,14 @@ final class DiskMonitor: ObservableObject {
         guard isExternal else { return nil }
 
         let capacities = capacityInfo(for: url, values: values)
+        let volumeUUID = values.volumeUUIDString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let preferenceID = volumeUUID.isEmpty
+            ? "fallback:\(url.path)|\(capacities.total)|\(values.volumeLocalizedFormatDescription ?? "")"
+            : "uuid:\(volumeUUID)"
 
         return MountedVolume(
             id: url.path,
+            autoImportPreferenceID: preferenceID,
             name: values.volumeName ?? url.lastPathComponent,
             url: url,
             formatDescription: values.volumeLocalizedFormatDescription ?? "外部磁盘",

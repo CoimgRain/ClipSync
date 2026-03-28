@@ -8,13 +8,14 @@ final class AutoImportCoordinator: ObservableObject {
     private var queuedVolumeIDs: Set<String> = []
 
     init(diskMonitor: DiskMonitor, settings: AppSettings, importer: MediaImporter) {
-        Publishers.CombineLatest3(
+        Publishers.CombineLatest4(
             diskMonitor.$removableVolumes,
             settings.$destinationFolderPath,
-            settings.$autoImportEnabled
+            settings.$autoImportEnabled,
+            settings.$autoImportEnabledVolumeIDs
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self, weak importer] volumes, folderPath, autoImportEnabled in
+        .sink { [weak self, weak importer] volumes, folderPath, autoImportEnabled, autoImportEnabledVolumeIDs in
             guard let self, let importer else { return }
 
             let activeVolumeIDs = Set(volumes.map(\.id))
@@ -23,7 +24,9 @@ final class AutoImportCoordinator: ObservableObject {
 
             guard autoImportEnabled else { return }
             let pendingVolumes = volumes.filter {
-                !self.handledVolumeIDs.contains($0.id) && !self.queuedVolumeIDs.contains($0.id)
+                autoImportEnabledVolumeIDs.contains($0.autoImportPreferenceID)
+                    && !self.handledVolumeIDs.contains($0.id)
+                    && !self.queuedVolumeIDs.contains($0.id)
             }
 
             guard !pendingVolumes.isEmpty else {

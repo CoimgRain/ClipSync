@@ -319,6 +319,12 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var autoImportEnabledVolumeIDs: Set<String> {
+        didSet {
+            Self.defaults.set(Array(autoImportEnabledVolumeIDs).sorted(), forKey: Self.autoImportEnabledVolumeIDsKey)
+        }
+    }
+
     @Published var folderClassificationEnabled: Bool {
         didSet {
             Self.defaults.set(folderClassificationEnabled, forKey: Self.folderClassificationEnabledKey)
@@ -346,6 +352,7 @@ final class AppSettings: ObservableObject {
     private static let destinationFolderKey = "destinationFolderPath"
     private static let destinationFolderBookmarkKey = "destinationFolderBookmark"
     private static let autoImportKey = "autoImportEnabled"
+    private static let autoImportEnabledVolumeIDsKey = "autoImportEnabledVolumeIDs"
     private static let folderClassificationEnabledKey = "folderClassificationEnabled"
     private static let folderConflictStrategyKey = "folderConflictStrategy"
     private static let folderClassificationRulesKey = "folderClassificationRules"
@@ -356,6 +363,7 @@ final class AppSettings: ObservableObject {
     init() {
         self.destinationFolderPath = ""
         self.autoImportEnabled = Self.defaults.bool(forKey: Self.autoImportKey)
+        self.autoImportEnabledVolumeIDs = Set(Self.defaults.stringArray(forKey: Self.autoImportEnabledVolumeIDsKey) ?? [])
         self.folderClassificationEnabled = Self.defaults.object(forKey: Self.folderClassificationEnabledKey) as? Bool ?? false
         self.folderConflictStrategy = FolderConflictStrategy(rawValue: Self.defaults.string(forKey: Self.folderConflictStrategyKey) ?? "") ?? .rename
         self.folderClassificationRules = Self.decode([FolderClassificationRule].self, from: Self.folderClassificationRulesKey) ?? []
@@ -367,6 +375,7 @@ final class AppSettings: ObservableObject {
     init(
         previewDestinationFolderPath: String,
         autoImportEnabled: Bool,
+        previewAutoImportEnabledVolumeIDs: Set<String> = [],
         previewFolderClassificationEnabled: Bool = false,
         previewFolderConflictStrategy: FolderConflictStrategy = .rename,
         previewFolderClassificationRules: [FolderClassificationRule] = [],
@@ -374,6 +383,7 @@ final class AppSettings: ObservableObject {
     ) {
         self.destinationFolderPath = previewDestinationFolderPath
         self.autoImportEnabled = autoImportEnabled
+        self.autoImportEnabledVolumeIDs = previewAutoImportEnabledVolumeIDs
         self.folderClassificationEnabled = previewFolderClassificationEnabled
         self.folderConflictStrategy = previewFolderConflictStrategy
         self.folderClassificationRules = previewFolderClassificationRules
@@ -395,6 +405,25 @@ final class AppSettings: ObservableObject {
 
     var enabledRuleCount: Int {
         folderClassificationRules.filter { $0.isEnabled && $0.isConfigured }.count
+    }
+
+    func isAutoImportEnabled(forVolumeID volumeID: String) -> Bool {
+        autoImportEnabledVolumeIDs.contains(volumeID)
+    }
+
+    func setAutoImport(_ isEnabled: Bool, forVolumeID volumeID: String) {
+        let normalizedVolumeID = volumeID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedVolumeID.isEmpty else { return }
+
+        if isEnabled {
+            autoImportEnabledVolumeIDs.insert(normalizedVolumeID)
+        } else {
+            autoImportEnabledVolumeIDs.remove(normalizedVolumeID)
+        }
+    }
+
+    func toggleAutoImport(forVolumeID volumeID: String) {
+        setAutoImport(!isAutoImportEnabled(forVolumeID: volumeID), forVolumeID: volumeID)
     }
 
     func chooseDestinationFolder() {

@@ -266,6 +266,9 @@ final class MediaImporter: ObservableObject {
     func cancelImport(for volumeID: String) {
         guard let session = activeImportSessions[volumeID] else { return }
         session.task?.cancel()
+        session.progressRefreshTask?.cancel()
+        removeActiveImportState(for: volumeID)
+        refreshAggregateImportProperties()
         setPersistentStatusMessage("正在取消 \(session.state.volumeName)...")
     }
 
