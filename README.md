@@ -1,4 +1,4 @@
-# MediaImporterMenuBar
+# ClipSync
 
 一个 macOS 菜单栏小工具：
 
@@ -10,7 +10,7 @@
 
 1. 用 Xcode 打开这个文件夹里的 `Package.swift`
 2. 等待 Xcode 加载完成
-3. 选择运行目标 `MediaImporterMenuBar`
+3. 选择运行目标 `ClipSync`
 4. 点击运行
 
 如果你在终端里遇到 `xcodebuild requires Xcode` 之类的提示，先执行：

@@ -4,13 +4,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "MediaImporterMenuBar",
+    name: "ClipSync",
     platforms: [
         .macOS(.v13),
     ],
     targets: [
         .executableTarget(
-            name: "MediaImporterMenuBar"
+            name: "ClipSync",
+            path: "Sources/MediaImporterMenuBar"
         ),
     ]
 )

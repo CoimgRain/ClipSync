@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		124217B6B05D1E2466FAC6DF /* MediaImporterMenuBarApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */; };
 		22BB427C18ECBD89FDC7868F /* AutoImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE683024F5A750C3B50711F6 /* AutoImportCoordinator.swift */; };
+		2C1E6D1E4B8A4E2AA1B09A11 /* DMGBackgroundPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C1E6D1E4B8A4E2AA1B09A10 /* DMGBackgroundPreview.swift */; };
 		4B02F1FCE98A4DB2A95F04E4 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 3D9A2B60B8E74E709C8E15D3 /* AppIcon.icns */; };
 			606F7D8FFFCE7AF6B2DB2901 /* MenuBarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */; };
 			70C789396A417843F5DEE15A /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 99957929BDFBD43FBA3A9D1F /* Cocoa.framework */; };
@@ -20,7 +21,8 @@
 
 /* Begin PBXFileReference section */
 			20E270EB911E494E75BE0FA1 /* MenuBarViews.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MenuBarViews.swift; path = MediaImporterMenuBar/MenuBarViews.swift; sourceTree = "<group>"; };
-			31FEF25D46BAC64648F15A74 /* MediaImporterMenuBar.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MediaImporterMenuBar.app; sourceTree = BUILT_PRODUCTS_DIR; };
+			2C1E6D1E4B8A4E2AA1B09A10 /* DMGBackgroundPreview.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = DMGBackgroundPreview.swift; path = MediaImporterMenuBar/DMGBackgroundPreview.swift; sourceTree = "<group>"; };
+			31FEF25D46BAC64648F15A74 /* ClipSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
 			3D9A2B60B8E74E709C8E15D3 /* AppIcon.icns */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 			3B7C0B8F6AA8468BABDC7C32 /* StatusBarController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = StatusBarController.swift; path = MediaImporterMenuBar/StatusBarController.swift; sourceTree = "<group>"; };
 			364BEF31982B41F0AC2083E1 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -47,7 +49,7 @@
 		0101B4FBB75B51CD826B2A07 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				31FEF25D46BAC64648F15A74 /* MediaImporterMenuBar.app */,
+				31FEF25D46BAC64648F15A74 /* ClipSync.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -77,6 +79,7 @@
 			children = (
 				B9C5715B37BF94B7F94F31CF /* AppSettings.swift */,
 				FE683024F5A750C3B50711F6 /* AutoImportCoordinator.swift */,
+				2C1E6D1E4B8A4E2AA1B09A10 /* DMGBackgroundPreview.swift */,
 					74CA0D56684539B94E4503FF /* DiskMonitor.swift */,
 					F23F406C51EB5AE1BBC75189 /* MediaImporter.swift */,
 					A361A6926E69DF0C30CCC839 /* MediaImporterMenuBarApp.swift */,
@@ -106,9 +109,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		6EC82666723C5BA25633559C /* MediaImporterMenuBar */ = {
+		6EC82666723C5BA25633559C /* ClipSync */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 5F4ACEDCC8CE3B4D86903609 /* Build configuration list for PBXNativeTarget "MediaImporterMenuBar" */;
+			buildConfigurationList = 5F4ACEDCC8CE3B4D86903609 /* Build configuration list for PBXNativeTarget "ClipSync" */;
 			buildPhases = (
 				8381B3E1E6D0E081A9CBADD7 /* Sources */,
 				200BBC57C3866DD15E8625D5 /* Frameworks */,
@@ -118,9 +121,9 @@
 			);
 			dependencies = (
 			);
-			name = MediaImporterMenuBar;
-			productName = MediaImporterMenuBar;
-			productReference = 31FEF25D46BAC64648F15A74 /* MediaImporterMenuBar.app */;
+			name = ClipSync;
+			productName = ClipSync;
+			productReference = 31FEF25D46BAC64648F15A74 /* ClipSync.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -132,7 +135,7 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 			};
-			buildConfigurationList = 52257C511F1718D69FBA8C33 /* Build configuration list for PBXProject "MediaImporterMenuBar" */;
+			buildConfigurationList = 52257C511F1718D69FBA8C33 /* Build configuration list for PBXProject "ClipSync" */;
 			compatibilityVersion = "Xcode 3.2";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -147,7 +150,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				6EC82666723C5BA25633559C /* MediaImporterMenuBar */,
+				6EC82666723C5BA25633559C /* ClipSync */,
 			);
 		};
 /* End PBXProject section */
@@ -170,6 +173,7 @@
 			files = (
 				D2873C6BCFAE66B2A65FBCC5 /* AppSettings.swift in Sources */,
 				22BB427C18ECBD89FDC7868F /* AutoImportCoordinator.swift in Sources */,
+				2C1E6D1E4B8A4E2AA1B09A11 /* DMGBackgroundPreview.swift in Sources */,
 					B0CADF01F1FCD0BE98FBC6AD /* DiskMonitor.swift in Sources */,
 					BCC2166441C9CB0CCB334C24 /* MediaImporter.swift in Sources */,
 					124217B6B05D1E2466FAC6DF /* MediaImporterMenuBarApp.swift in Sources */,
@@ -195,8 +199,8 @@
 				INFOPLIST_FILE = "App/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kang.MediaImporterMenuBar;
-				PRODUCT_NAME = MediaImporterMenuBar;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kang.ClipSync;
+				PRODUCT_NAME = ClipSync;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
@@ -217,8 +221,8 @@
 				INFOPLIST_FILE = "App/Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.kang.MediaImporterMenuBar;
-				PRODUCT_NAME = MediaImporterMenuBar;
+				PRODUCT_BUNDLE_IDENTIFIER = com.kang.ClipSync;
+				PRODUCT_NAME = ClipSync;
 				SDKROOT = macosx;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
@@ -343,7 +347,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		52257C511F1718D69FBA8C33 /* Build configuration list for PBXProject "MediaImporterMenuBar" */ = {
+		52257C511F1718D69FBA8C33 /* Build configuration list for PBXProject "ClipSync" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				D64AFB9F6AB6D480D1DCA88E /* Debug */,
@@ -352,7 +356,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		5F4ACEDCC8CE3B4D86903609 /* Build configuration list for PBXNativeTarget "MediaImporterMenuBar" */ = {
+		5F4ACEDCC8CE3B4D86903609 /* Build configuration list for PBXNativeTarget "ClipSync" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				CAD7BBF814B5CC5083D7811C /* Release */,

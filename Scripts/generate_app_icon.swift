@@ -5,72 +5,37 @@ let appDirectory = projectRoot.appendingPathComponent("App", isDirectory: true)
 let iconsetDirectory = appDirectory.appendingPathComponent("AppIcon.iconset", isDirectory: true)
 let basePNGURL = appDirectory.appendingPathComponent("AppIcon-1024.png")
 
+let sourceCandidates = [
+    appDirectory.appendingPathComponent("AppIcon-Source.png"),
+    appDirectory.appendingPathComponent("AppIcon-Source.jpg"),
+    appDirectory.appendingPathComponent("AppIcon-Source.jpeg"),
+]
+
+guard let sourceURL = sourceCandidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+    fputs("Missing source image. Put your logo at App/AppIcon-Source.png or App/AppIcon-Source.jpg\n", stderr)
+    exit(1)
+}
+
+guard let sourceImage = NSImage(contentsOf: sourceURL) else {
+    fputs("Failed to load source image at \(sourceURL.path)\n", stderr)
+    exit(1)
+}
+
 try? FileManager.default.removeItem(at: iconsetDirectory)
 try FileManager.default.createDirectory(at: iconsetDirectory, withIntermediateDirectories: true)
 
-func drawSymbol(
-    _ name: String,
-    pointSize: CGFloat,
-    color: NSColor,
-    rect: NSRect,
-    weight: NSFont.Weight = .regular
-) {
-    guard let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) else {
-        return
-    }
-
-    let sizeConfig = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-    let colorConfig = NSImage.SymbolConfiguration(hierarchicalColor: color)
-    let config = sizeConfig.applying(colorConfig)
-    let configured = symbol.withSymbolConfiguration(config) ?? symbol
-    configured.draw(in: rect)
-}
-
-func makeBaseIcon() -> NSImage {
-    let canvasSize = NSSize(width: 1024, height: 1024)
-    let image = NSImage(size: canvasSize)
-    image.lockFocus()
-
-    let canvasRect = NSRect(origin: .zero, size: canvasSize)
-    let tileRect = canvasRect.insetBy(dx: 42, dy: 42)
-
-    let background = NSBezierPath(roundedRect: tileRect, xRadius: 220, yRadius: 220)
-    NSColor(calibratedRed: 0.11, green: 0.12, blue: 0.14, alpha: 1).setFill()
-    background.fill()
-
-    if let gradient = NSGradient(colors: [
-        NSColor(calibratedWhite: 1, alpha: 0.12),
-        NSColor(calibratedWhite: 1, alpha: 0.02),
-    ]) {
-        gradient.draw(in: background, relativeCenterPosition: NSPoint(x: -0.55, y: 1.15))
-    }
-
-    let outlineRect = tileRect.insetBy(dx: 18, dy: 18)
-    let outline = NSBezierPath(roundedRect: outlineRect, xRadius: 200, yRadius: 200)
-    NSColor.white.withAlphaComponent(0.08).setStroke()
-    outline.lineWidth = 5
-    outline.stroke()
-
-    let folderRect = NSRect(x: 176, y: 224, width: 672, height: 552)
-    drawSymbol(
-        "folder.fill",
-        pointSize: 656,
-        color: NSColor(calibratedRed: 0.37, green: 0.82, blue: 0.60, alpha: 1),
-        rect: folderRect,
-        weight: .regular
+func rasterize(_ image: NSImage, size: CGFloat) -> NSImage {
+    let output = NSImage(size: NSSize(width: size, height: size))
+    output.lockFocus()
+    NSGraphicsContext.current?.imageInterpolation = .high
+    image.draw(
+        in: NSRect(x: 0, y: 0, width: size, height: size),
+        from: .zero,
+        operation: .copy,
+        fraction: 1.0
     )
-
-    let mediaRect = NSRect(x: 378, y: 388, width: 268, height: 226)
-    drawSymbol(
-        "photo.stack.fill",
-        pointSize: 258,
-        color: NSColor.white.withAlphaComponent(0.95),
-        rect: mediaRect,
-        weight: .regular
-    )
-
-    image.unlockFocus()
-    return image
+    output.unlockFocus()
+    return output
 }
 
 func savePNG(_ image: NSImage, to url: URL) throws {
@@ -85,7 +50,7 @@ func savePNG(_ image: NSImage, to url: URL) throws {
     try png.write(to: url)
 }
 
-let image = makeBaseIcon()
+let image = rasterize(sourceImage, size: 1024)
 try savePNG(image, to: basePNGURL)
 
 let iconSizes: [String: CGFloat] = [
@@ -102,11 +67,7 @@ let iconSizes: [String: CGFloat] = [
 ]
 
 for (name, size) in iconSizes {
-    let resized = NSImage(size: NSSize(width: size, height: size))
-    resized.lockFocus()
-    image.draw(in: NSRect(x: 0, y: 0, width: size, height: size))
-    resized.unlockFocus()
-    try savePNG(resized, to: iconsetDirectory.appendingPathComponent(name))
+    try savePNG(rasterize(sourceImage, size: size), to: iconsetDirectory.appendingPathComponent(name))
 }
 
-print("Generated icon at \(basePNGURL.path)")
+print("Generated icon from \(sourceURL.lastPathComponent)")

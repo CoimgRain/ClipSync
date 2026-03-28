@@ -587,12 +587,17 @@ private struct FolderClassificationRulesView: View {
                     onDone()
                 } label: {
                     Text("完成")
-                        .font(.system(size: 24, weight: .bold))
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color(red: 0.24, green: 0.47, blue: 0.96))
+                        )
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(.plain)
+                .offset(y: -2)
             }
 
             Text("设置规则后，只要原文件夹名包含你填写的关键词，照片和视频就会自动导入到目标文件夹里的对应子文件夹。")
@@ -867,11 +872,10 @@ private struct FolderClassificationRuleRow: View {
             HStack(spacing: 10) {
                 FolderClassificationBadge(text: "规则 \(index + 1)", style: .softGreen)
 
-                Toggle("启用这条规则", isOn: $rule.isEnabled)
+                Toggle("", isOn: $rule.isEnabled)
+                    .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.small)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(FolderClassificationPalette.primaryText)
 
                 Spacer()
 
@@ -1070,7 +1074,7 @@ private struct FolderClassificationOverviewStepCard<Accessory: View>: View {
     let panelDetail: String?
     @ViewBuilder let accessory: Accessory
 
-    private let panelTextFont = Font.system(size: 15, weight: .regular)
+    private let panelTextFont = Font.system(size: 13, weight: .regular)
     private let panelTextColor = Color.white.opacity(0.6)
     private let cardHorizontalPadding: CGFloat = 18
     private let cardVerticalPadding: CGFloat = 18
@@ -1160,7 +1164,7 @@ private struct FolderClassificationSectionTitle: View {
 }
 
 private enum FolderClassificationTypography {
-    static let sectionTitleFont = Font.system(size: 18, weight: .bold)
+    static let sectionTitleFont = Font.system(size: 17, weight: .bold)
 }
 
 private struct FolderClassificationBadge: View {

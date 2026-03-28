@@ -1,7 +1,7 @@
 require "xcodeproj"
 
-PROJECT_NAME = "MediaImporterMenuBar"
-APP_TARGET_NAME = "MediaImporterMenuBar"
+PROJECT_NAME = "ClipSync"
+APP_TARGET_NAME = "ClipSync"
 ROOT = File.expand_path("..", __dir__)
 PROJECT_PATH = File.join(ROOT, "#{PROJECT_NAME}.xcodeproj")
 SOURCE_DIR = File.join(ROOT, "Sources", "MediaImporterMenuBar")
@@ -33,7 +33,7 @@ app_group.new_file("Info.plist")
 
 target.build_configurations.each do |config|
   config.build_settings["PRODUCT_NAME"] = APP_TARGET_NAME
-  config.build_settings["PRODUCT_BUNDLE_IDENTIFIER"] = "com.kang.MediaImporterMenuBar"
+  config.build_settings["PRODUCT_BUNDLE_IDENTIFIER"] = "com.kang.ClipSync"
   config.build_settings["GENERATE_INFOPLIST_FILE"] = "NO"
   config.build_settings["INFOPLIST_FILE"] = INFO_PLIST
   config.build_settings["SWIFT_VERSION"] = "6.0"
