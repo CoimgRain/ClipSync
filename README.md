@@ -13,7 +13,8 @@
 
 如果你只是想直接下载安装 App，不需要安装 Xcode，可以在 Release 附件里下载：
 
-- [ClipSync-1.0.0.dmg](https://github.com/CoimgRain/ClipSync/releases/download/clipsync_v1.0.0/ClipSync-1.0.0.dmg)
+- [直接下载 ClipSync-1.0.0.dmg](https://github.com/CoimgRain/ClipSync/releases/download/clipsync_v1.0.0/ClipSync-1.0.0.dmg)
+- 如果上面的链接没有自动开始下载，也可以打开 [Release 页面](https://github.com/CoimgRain/ClipSync/releases/tag/clipsync_v1.0.0) 手动下载附件
 
 如果你想查看源码或自行编译，再按下面的方式运行。
 
