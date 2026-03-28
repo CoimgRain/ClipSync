@@ -6,18 +6,22 @@
 - 选择一个目标文件夹后，可将照片和视频导入进去
 - 支持开启“插入后自动导入”
 
-## 运行方式
+## 获取方式
+
+源码已经提供在这个仓库里。
+
+如果你只是想直接下载安装 App，不需要安装 Xcode，可以在 Release 附件里下载：
+
+- [ClipSync-1.0.0.dmg](https://github.com/CoimgRain/ClipSync/releases/download/clipsync_v1.0.0/ClipSync-1.0.0.dmg)
+
+如果你想查看源码或自行编译，再按下面的方式运行。
+
+## 从源码运行
 
 1. 用 Xcode 打开这个文件夹里的 `Package.swift`
 2. 等待 Xcode 加载完成
 3. 选择运行目标 `ClipSync`
 4. 点击运行
-
-如果你在终端里遇到 `xcodebuild requires Xcode` 之类的提示，先执行：
-
-```bash
-sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
-```
 
 ## 当前行为
 
