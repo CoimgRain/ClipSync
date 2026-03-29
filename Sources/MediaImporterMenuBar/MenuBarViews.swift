@@ -327,15 +327,9 @@ struct MenuContentView: View {
 
     private var settingsPopoverContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("设置")
-                        .font(.headline)
-
-                    Text("导入目标、自动导入和分类规则都在这里。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            HStack(alignment: .center) {
+                Text("设置")
+                    .font(.system(size: 16 , weight: .bold, design: .rounded))
 
                 Spacer()
 
@@ -382,35 +376,6 @@ struct MenuContentView: View {
                 .onTapGesture {
                     isShowingSettingsPopover = false
                     settings.chooseDestinationFolder()
-                }
-
-                HStack(spacing: 12) {
-                    Image(systemName: settings.autoImportEnabled ? "bolt.fill" : "bolt.slash")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(settings.autoImportEnabled ? Color(red: 1.00, green: 0.84, blue: 0.24) : .secondary)
-                        .frame(width: 18)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("自动导入")
-                            .font(.body.weight(.semibold))
-                        Text("插入设备后自动开始导入")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Toggle("", isOn: $settings.autoImportEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(.blue)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(.quaternary.opacity(0.16), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
                 }
 
                 HStack(spacing: 12) {
@@ -1666,12 +1631,6 @@ private struct VolumeCard: View {
         return "这个设备目前默认手动导入。开启后会记住，下次插入时继续按这个设置处理。"
     }
 
-    private var volumeAutoImportActionIconName: String {
-        isPerVolumeAutoImportEnabled
-            ? (isHoveringAutoImportAction ? "bolt.fill" : "bolt")
-            : (isHoveringAutoImportAction ? "bolt.slash.fill" : "bolt.slash")
-    }
-
     @ViewBuilder
     private var mediaSummaryDetailView: some View {
         if let mediaSummary {
@@ -1959,29 +1918,6 @@ private struct VolumeCard: View {
         }
     }
 
-    private func actionButtonCircleBackground(isHovered: Bool) -> some View {
-        Circle()
-            .fill(isHovered ? Color.white.opacity(0.18) : Color.clear)
-            .overlay {
-                Circle()
-                    .strokeBorder(
-                        isHovered ? Color.white.opacity(0.30) : Color.clear,
-                        lineWidth: 1
-                    )
-            }
-            .frame(width: 24, height: 24)
-            .shadow(
-                color: isHovered ? Color.black.opacity(0.22) : .clear,
-                radius: 6,
-                x: 0,
-                y: 2
-            )
-    }
-
-    private func actionButtonHoverScale(isHovered: Bool) -> CGFloat {
-        isHovered ? 1.10 : 1
-    }
-
     private var capacityChipHeight: CGFloat {
         autoImportHintText == nil ? 42 : 64
     }
@@ -2015,15 +1951,15 @@ private struct VolumeCard: View {
                     Button {
                         toggleVolumeAutoImport()
                     } label: {
-                        Image(systemName: volumeAutoImportActionIconName)
-                            .font(.system(size: 13, weight: .semibold))
-                                .frame(width: 40, height: 30)
-                                .background {
-                                    actionButtonCircleBackground(isHovered: isHoveringAutoImportAction)
-                                }
-                                .scaleEffect(actionButtonHoverScale(isHovered: isHoveringAutoImportAction))
-                                .animation(.easeOut(duration: 0.16), value: isHoveringAutoImportAction)
-                                .contentShape(Rectangle())
+                        AutoImportStatusIcon(
+                            isEnabled: isPerVolumeAutoImportEnabled,
+                            filled: isHoveringAutoImportAction,
+                            size: 13,
+                            color: .white.opacity(0.95)
+                        )
+                        .frame(width: 40, height: 30)
+                        .animation(.easeOut(duration: 0.16), value: isHoveringAutoImportAction)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .buttonStyle(CapacityChipActionButtonStyle(isHovered: isHoveringAutoImportAction))
@@ -2064,14 +2000,15 @@ private struct VolumeCard: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             } else {
                 HStack(spacing: 6) {
-                    Image(systemName: isPerVolumeAutoImportEnabled ? "bolt.fill" : "bolt.slash")
-                        .font(.system(size: 12.5, weight: .semibold))
-                        .foregroundStyle(
-                            isPerVolumeAutoImportEnabled
-                                ? .white.opacity(0.95)
-                                : .white.opacity(0.62)
-                        )
-                        .padding(.leading, 4)
+                    AutoImportStatusIcon(
+                        isEnabled: isPerVolumeAutoImportEnabled,
+                        filled: isPerVolumeAutoImportEnabled,
+                        size: 12.5,
+                        color: isPerVolumeAutoImportEnabled
+                            ? .white.opacity(0.95)
+                            : .white.opacity(0.62)
+                    )
+                    .padding(.leading, 4)
 
                     Text(volume.roundedTotalText)
                         .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -2153,6 +2090,11 @@ private struct VolumeCard: View {
         return (usedMinimumWidth, remainingMinimumWidth)
     }
 
+    private var shouldCompactRemainingTile: Bool {
+        let remainingFraction = max(0, 1 - max(0, min(1, volume.usageFraction)))
+        return remainingFraction > 0.0001 && remainingFraction <= 0.12
+    }
+
     private var capacityTilesRowHeight: CGFloat {
         let usedFraction = max(0, min(1, volume.usageFraction))
         let remainingFraction = max(0, 1 - usedFraction)
@@ -2161,7 +2103,11 @@ private struct VolumeCard: View {
         let separatorWidth: CGFloat = (showsUsedTile && showsRemainingTile) ? 12 : 0
         let availableWidth = max(headerRowWidth, 0)
         let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
-        let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+        let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(
+            title: "剩余空间",
+            value: volume.availableText,
+            style: shouldCompactRemainingTile ? .compactTrailing : .regular
+        ) : 0
         let requiresStackedLayout = availableWidth > 0 && showsUsedTile && showsRemainingTile
             && (usedMinimumWidth + remainingMinimumWidth + separatorWidth > availableWidth)
 
@@ -2177,7 +2123,11 @@ private struct VolumeCard: View {
             let separatorWidth: CGFloat = (showsUsedTile && showsRemainingTile) ? 12 : 0
             let contentWidth = max(0, proxy.size.width - separatorWidth)
             let usedMinimumWidth = showsUsedTile ? InfoTile.minimumWidth(title: "已用空间", value: volume.usedText) : 0
-            let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(title: "剩余空间", value: volume.availableText) : 0
+            let remainingMinimumWidth = showsRemainingTile ? InfoTile.minimumWidth(
+                title: "剩余空间",
+                value: volume.availableText,
+                style: shouldCompactRemainingTile ? .compactTrailing : .regular
+            ) : 0
             let widths = capacityTileWidths(
                 totalWidth: contentWidth,
                 usedMinimumWidth: usedMinimumWidth,
@@ -2231,7 +2181,8 @@ private struct VolumeCard: View {
                                 title: "剩余空间",
                                 value: volume.availableText,
                                 backgroundColors: neutralInfoTileBackgroundColors,
-                                borderColor: infoTileBorderColor
+                                borderColor: infoTileBorderColor,
+                                style: shouldCompactRemainingTile ? .compactTrailing : .regular
                             )
                             .frame(width: widths.remaining, alignment: .leading)
                         }
@@ -2565,7 +2516,7 @@ private struct CapacityChipActionButtonStyle: ButtonStyle {
                             )
                     }
             }
-            .scaleEffect(configuration.isPressed ? 0.90 : (isHovered ? 1.10 : 1))
+            .scaleEffect(configuration.isPressed ? 0.90 : 1)
             .shadow(
                 color: isHovered ? .white.opacity(configuration.isPressed ? 0.06 : 0.16) : .clear,
                 radius: isHovered ? 10 : 0,
@@ -2584,32 +2535,41 @@ private struct CapacityChipActionButtonStyle: ButtonStyle {
 }
 
 private struct InfoTile: View {
+    enum Style: Equatable {
+        case regular
+        case compactTrailing
+    }
+
     let title: String
     let value: String
     let backgroundColors: [Color]
     let borderColor: Color
     let borderHighlightOpacity: Double
+    let style: Style
 
     private static let titleFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
     private static let valueFont = NSFont.systemFont(ofSize: 15, weight: .semibold)
     private static let horizontalPadding: CGFloat = 10
+    private static let compactWidthBuffer: CGFloat = 0
     private static let widthBuffer: CGFloat = 16
 
     init(title: String, value: String, backgroundColors: [Color] = [
         .white.opacity(0.24),
         .white.opacity(0.18),
-    ], borderColor: Color = Color.white.opacity(0.48), borderHighlightOpacity: Double = 0.18) {
+    ], borderColor: Color = Color.white.opacity(0.48), borderHighlightOpacity: Double = 0.18, style: Style = .regular) {
         self.title = title
         self.value = value
         self.backgroundColors = backgroundColors
         self.borderColor = borderColor
         self.borderHighlightOpacity = borderHighlightOpacity
+        self.style = style
     }
 
-    static func minimumWidth(title: String, value: String) -> CGFloat {
+    static func minimumWidth(title: String, value: String, style: Style = .regular) -> CGFloat {
         let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
         let valueWidth = (value as NSString).size(withAttributes: [.font: valueFont]).width
-        return ceil(max(titleWidth, valueWidth) + (horizontalPadding * 2) + widthBuffer)
+        let buffer = style == .compactTrailing ? compactWidthBuffer : widthBuffer
+        return ceil(max(titleWidth, valueWidth) + (horizontalPadding * 2) + buffer)
     }
 
     var body: some View {
@@ -2647,6 +2607,39 @@ private struct InfoTile: View {
                         )
                 }
         }
+    }
+}
+
+private struct AutoImportStatusIcon: View {
+    let isEnabled: Bool
+    let filled: Bool
+    let size: CGFloat
+    let color: Color
+
+    private var baseSymbolName: String {
+        if isEnabled {
+            return filled ? "tray.and.arrow.down.fill" : "tray.and.arrow.down"
+        }
+
+        return filled ? "tray.fill" : "tray"
+    }
+
+    var body: some View {
+        ZStack {
+            Image(systemName: baseSymbolName)
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: size, weight: .semibold))
+
+            if !isEnabled {
+                Rectangle()
+                    .fill(color)
+                    .frame(width: max(1.4, size * 0.11), height: size * 1.34)
+                    .clipShape(RoundedRectangle(cornerRadius: 99, style: .continuous))
+                    .rotationEffect(.degrees(-34))
+                    .offset(x: size * 0.02, y: size * 0.01)
+            }
+        }
+        .foregroundStyle(color)
     }
 }
 
