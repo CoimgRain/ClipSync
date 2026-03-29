@@ -1281,7 +1281,7 @@ private struct StatusBanner: View {
 private struct MenuToolbarButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .font(.system(size: 13, weight: .bold, design: .rounded))
             .foregroundStyle(.white.opacity(configuration.isPressed ? 0.80 : 0.94))
             .frame(maxWidth: .infinity)
             .frame(height: 37)
