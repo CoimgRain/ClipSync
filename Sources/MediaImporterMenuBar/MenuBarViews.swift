@@ -151,6 +151,7 @@ struct MenuContentView: View {
     }
 
     private let cardStackSpacing: CGFloat = 12
+    private let footerButtonWidth: CGFloat = 100
 
     private var contentBody: some View {
         VStack(alignment: .leading, spacing: cardStackSpacing) {
@@ -258,16 +259,25 @@ struct MenuContentView: View {
     }
 
     private var footerSection: some View {
-        HStack(alignment: .center) {
-            Button("刷新设备") {
+        HStack(alignment: .center, spacing: 12) {
+            Button {
                 diskMonitor.refreshVolumes()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 14, height: 14)
+                    Text("刷新设备")
+                }
             }
-            .controlSize(.regular)
+            .frame(width: footerButtonWidth)
+            .buttonStyle(MenuToolbarButtonStyle())
 
             Spacer()
 
             settingsMenu
         }
+        .padding(.horizontal, 2)
     }
 
     private func refreshMediaSummaries() async {
@@ -292,34 +302,24 @@ struct MenuContentView: View {
         }
     }
 
-    private var settingsMenu: some View { //设置按钮选项
+    private var settingsMenu: some View {
         Button {
             isShowingSettingsPopover.toggle()
         } label: {
-            HStack(spacing: 0) {
-                HStack(spacing: 5) {
-                    Image(systemName: "gearshape")
-                        .padding(.leading, -3)
-                    Text("设置")
-                }
-
-                Rectangle()
-                    .fill(.secondary.opacity(0.25))
-                    .frame(width: 1, height: 12)
-                    .padding(.leading, 7)   // 左边间距 = 2
-                    .padding(.trailing, 9)  // 右边间距 = 6
-
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .frame(width: 14, height: 14)
+                Text("设置")
                 Image(systemName: isShowingSettingsPopover ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .light))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 2)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 9, height: 9)
+                    .foregroundStyle(.white.opacity(0.62))
             }
-            .font(.body)
-            .foregroundStyle(.primary)
-            .fixedSize()
+            .foregroundStyle(.white.opacity(0.94))
         }
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
+        .frame(width: footerButtonWidth)
+        .buttonStyle(MenuToolbarButtonStyle())
         .popover(isPresented: $isShowingSettingsPopover, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
             settingsPopoverContent
         }
@@ -1313,6 +1313,36 @@ private struct StatusBanner: View {
     }
 }
 
+private struct MenuToolbarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.80 : 0.94))
+            .frame(maxWidth: .infinity)
+            .frame(height: 37)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(configuration.isPressed ? 0.16 : 0.11),
+                                Color.white.opacity(configuration.isPressed ? 0.09 : 0.05),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(.white.opacity(0.16), lineWidth: 1.35)
+                    }
+            }
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
 private struct EmptyDeviceState: View {
     @State private var animationSeed = UUID().uuidString
 
@@ -1853,7 +1883,7 @@ private struct VolumeCard: View {
                 Capsule()
                     .strokeBorder(
                         isPerVolumeAutoImportEnabled
-                            ? Color(red: 0.42, green: 0.86, blue: 0.58).opacity(isHoveringCapacityChip ? 0.64 : 0.40)
+                            ? Color(red: 0.45, green: 0.92, blue: 1.00).opacity(isHoveringCapacityChip ? 0.72 : 0.50)
                             : Color.white.opacity(0.08),
                         lineWidth: 1
                     )
@@ -1864,8 +1894,8 @@ private struct VolumeCard: View {
         if isPerVolumeAutoImportEnabled {
             return LinearGradient(
                 colors: [
-                    Color(red: 0.18, green: 0.58, blue: 0.36).opacity(isHoveringCapacityChip ? 0.80 : 0.64),
-                    Color(red: 0.28, green: 0.74, blue: 0.46).opacity(isHoveringCapacityChip ? 0.70 : 0.54),
+                    Color(red: 0.07, green: 0.46, blue: 0.74).opacity(isHoveringCapacityChip ? 0.88 : 0.74),
+                    Color(red: 0.14, green: 0.76, blue: 0.88).opacity(isHoveringCapacityChip ? 0.78 : 0.64),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
