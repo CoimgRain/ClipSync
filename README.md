@@ -1,4 +1,4 @@
-# ClipSync
+# ClipSync — SD 卡 / U 盘照片与视频导入助手
 
 一个 macOS 菜单栏小工具：
 
